@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
-// --- TỰ KIỂM TRA BIẾN MÔI TRƯỜNG ---
+// --- TỰ KIỂM TRA BIẾN MÔI TRƯƯỜG ---
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey = process.env.CLOUDINARY_API_KEY;
 const apiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -35,18 +35,17 @@ app.get('/api/sign-upload', (req, res) => {
     // Tạo một timestamp (tính bằng giây)
     const timestamp = Math.round((new Date).getTime()/1000);
 
-    // Các tham số bạn muốn ký
-    // eager: ra lệnh cho Cloudinary chuyển đổi sang mp4 ngay lập tức
+    // ** SỬA LỖI: Chỉ ký vào timestamp **
+    // Các tham số khác như 'eager' sẽ được gửi từ frontend và không cần ký
     const params_to_sign = {
-        timestamp: timestamp,
-        eager: 'f_mp4,vc_h264,ac_aac' 
+        timestamp: timestamp
     };
 
     try {
         // Dùng API Secret để tạo chữ ký
         const signature = cloudinary.utils.api_sign_request(params_to_sign, apiSecret);
         
-        // Gửi chữ ký, timestamp và api_key về cho frontend
+        // Gửi chữ ký và timestamp về cho frontend
         res.json({
             signature: signature,
             timestamp: timestamp,
