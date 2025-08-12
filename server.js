@@ -1,69 +1,99 @@
 const express = require('express');
 const multer = require('multer');
-const ffmpeg = 'fluent-ffmpeg'; // This will be required conditionally
+const ffmpeg = require('fluent-ffmpeg');
 const stream = require('stream');
-const cors = require('cors'); // Thêm thư viện cors
+const cors = require('cors');
+const cloudinary = require('cloudinary').v2;
+
+// --- Cấu hình Cloudinary từ biến môi trường trên Render ---
+cloudinary.config({ 
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
+  api_key: process.env.CLOUDINARY_API_KEY, 
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true
+});
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Kích hoạt CORS ---
-// Cho phép các yêu cầu từ bất kỳ nguồn nào. An toàn cho trường hợp này.
 app.use(cors());
 
-// Cấu hình Multer để lưu file vào bộ nhớ (RAM)
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Phục vụ các file tĩnh từ thư mục /public
-app.use(express.static('public'));
-
-// Endpoint để kiểm tra backend có hoạt động không
 app.get('/', (req, res) => {
-    res.send('Backend đang hoạt động tốt!');
+    res.send('Backend đang hoạt động tốt! Sẵn sàng chuyển đổi và tải video lên Cloudinary.');
 });
 
-// Endpoint để chuyển đổi video
+// Hàm để tải một buffer lên Cloudinary
+const uploadStream = (buffer) => {
+    return new Promise((resolve, reject) => {
+        const upload = cloudinary.uploader.upload_stream(
+            { resource_type: "video" }, // Quan trọng: chỉ định đây là file video
+            (error, result) => {
+                if (error) {
+                    reject(error);
+                } else {
+                    resolve(result);
+                }
+            }
+        );
+        upload.end(buffer);
+    });
+};
+
 app.post('/convert', upload.single('video'), (req, res) => {
     if (!req.file) {
         return res.status(400).send('Không có file nào được tải lên.');
     }
 
-    console.log(`[INFO] Nhận được file trong bộ nhớ, kích thước: ${(req.file.size / (1024*1024)).toFixed(2)} MB. Bắt đầu chuyển đổi.`);
+    console.log(`[INFO] Nhận file ${ (req.file.size / (1024*1024)).toFixed(2) } MB. Bắt đầu chuyển đổi.`);
+    
+    const readableStream = new stream.PassThrough();
+    readableStream.end(req.file.buffer);
 
-    try {
-        const ffmpegInstance = require(ffmpeg);
-        const readableStream = new stream.PassThrough();
-        readableStream.end(req.file.buffer);
+    // Tạo một stream để hứng kết quả từ FFmpeg
+    const chunks = [];
+    const writableStream = new stream.Writable({
+        write(chunk, encoding, callback) {
+            chunks.push(chunk);
+            callback();
+        }
+    });
 
-        const outputFilename = `converted-${Date.now()}.mp4`;
-        res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
-        res.setHeader('Content-Type', 'video/mp4');
-
-        ffmpegInstance(readableStream)
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .toFormat('mp4')
-            .on('start', (commandLine) => {
-                console.log('[FFMPEG] Đã khởi chạy với lệnh: ' + commandLine);
-            })
-            .on('error', (err, stdout, stderr) => {
-                console.error('[ERROR] Lỗi FFmpeg:', err.message);
-                console.error('[FFMPEG stdout]:', stdout);
-                console.error('[FFMPEG stderr]:', stderr);
-                if (!res.headersSent) {
-                    res.status(500).send('Lỗi trong quá trình chuyển đổi video.');
-                }
-            })
-            .on('end', () => {
-                console.log('[SUCCESS] Chuyển đổi và stream thành công.');
-            })
-            .pipe(res, { end: true });
-
-    } catch (error) {
-         console.error('[FATAL] Không thể tải thư viện fluent-ffmpeg. Đảm bảo FFmpeg đã được cài đặt trong môi trường.', error);
-         res.status(500).send('Lỗi máy chủ: Không thể khởi tạo bộ chuyển đổi.');
-    }
+    ffmpeg(readableStream)
+        .videoCodec('libx264')
+        .audioCodec('aac')
+        .addOutputOptions([
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-movflags', 'frag_keyframe+empty_moov',
+            '-threads', '1'
+        ])
+        .toFormat('mp4')
+        .on('start', (commandLine) => {
+            console.log('[FFMPEG] Đã khởi chạy với lệnh: ' + commandLine);
+        })
+        .on('error', (err) => {
+            console.error('[ERROR] Lỗi FFmpeg:', err.message);
+            if (!res.headersSent) {
+                res.status(500).send('Lỗi trong quá trình chuyển đổi video.');
+            }
+        })
+        .on('end', async () => {
+            console.log('[SUCCESS] FFmpeg đã xử lý xong. Chuẩn bị tải lên Cloudinary.');
+            try {
+                const videoBuffer = Buffer.concat(chunks);
+                const result = await uploadStream(videoBuffer);
+                console.log('[SUCCESS] Đã tải lên Cloudinary thành công.');
+                // Trả về URL an toàn của video trên Cloudinary
+                res.json({ downloadUrl: result.secure_url });
+            } catch (uploadError) {
+                console.error('[ERROR] Lỗi khi tải lên Cloudinary:', uploadError.message);
+                res.status(500).send('Lỗi khi lưu trữ video đã chuyển đổi.');
+            }
+        })
+        .pipe(writableStream);
 });
 
 app.listen(port, () => {

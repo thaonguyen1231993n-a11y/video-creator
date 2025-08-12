@@ -98,11 +98,7 @@
         setVh();
 
         // --- STATE & CONFIG ---
-        // =====================================================================================
-        // === QUAN TRỌNG: Dán URL backend của bạn trên Render vào đây ===
-        // Ví dụ: const BACKEND_URL = 'https://video-creator-backend.onrender.com';
-        // =====================================================================================
-        const BACKEND_URL = 'https://v-creator.onrender.com'; // <--- THAY THẾ URL NÀY
+        const BACKEND_URL = 'https://v-creator.onrender.com'; // <-- Đảm bảo URL này chính xác
 
         let imageFiles = [], audioFile1 = null, audioFile2 = null, logoFile = null, mediaRecorder;
         let animationFrameId, recordingStartTime = 0;
@@ -288,6 +284,7 @@
                     <div id="download-section-${device}" class="w-full hidden">
                          <a id="download-link-${device}" class="w-full text-center inline-block bg-green-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-green-700">Tải Video (.${fileExtension})</a>
                          <button id="convert-btn-${device}" class="w-full mt-2 bg-blue-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-blue-700 transition">Chuyển sang MP4</button>
+                         <div id="convert-status-${device}" class="text-xs text-center text-gray-600 mt-2"></div>
                          <button id="new-video-btn-${device}" class="w-full mt-2 bg-gray-200 text-gray-800 font-bold ${buttonPadding} rounded-lg hover:bg-gray-300 transition">Tạo mới</button>
                     </div>
                 </div>
@@ -341,8 +338,9 @@
                 if (e.target.closest('button')?.id.startsWith('stop-btn') || e.target.closest('button')?.id === 'recording-stop-btn') stopRecording();
                 if (e.target.closest('button')?.id.startsWith('new-video-btn') || e.target.closest('button')?.id === 'recording-new-btn') resetToEditMode();
                 
-                // Gắn sự kiện cho nút chuyển đổi
-                if (e.target.closest('button')?.id.startsWith('convert-btn')) convertToMp4();
+                if (e.target.closest('button')?.id.startsWith('convert-btn') || e.target.closest('button')?.id === 'recording-convert-btn') {
+                    convertToMp4();
+                }
             });
 
             document.body.addEventListener('change', (e) => {
@@ -697,6 +695,9 @@
                         convertBtn.style.display = 'none';
                     }
                 }
+                 // Xóa thông báo cũ
+                const statusDiv = el.querySelector('[id^="convert-status"]');
+                if (statusDiv) statusDiv.textContent = '';
             });
             document.querySelectorAll('[id^="start-btn"], [id^="stop-btn"]').forEach(btn => btn.classList.add('hidden'));
 
@@ -763,7 +764,8 @@
                 localAudioPlayer1 = new Audio();
                 localAudioPlayer1.crossOrigin = "anonymous";
                 localAudioPlayer1.src = URL.createObjectURL(audioFile1);
-                localAudioPlayer1.loop = true;
+                // ** SỬA LỖI: Tắt lặp lại để video tự dừng **
+                // localAudioPlayer1.loop = true; // Đã xóa/vô hiệu hóa dòng này
 
                 const source1 = localAudioContext.createMediaElementSource(localAudioPlayer1);
                 const gainNode1 = localAudioContext.createGain();
@@ -775,7 +777,7 @@
                     localAudioPlayer2 = new Audio();
                     localAudioPlayer2.crossOrigin = "anonymous";
                     localAudioPlayer2.src = URL.createObjectURL(audioFile2);
-                    localAudioPlayer2.loop = true;
+                    localAudioPlayer2.loop = true; // Nhạc nền vẫn lặp lại
                     const source2 = localAudioContext.createMediaElementSource(localAudioPlayer2);
                     const gainNode2 = localAudioContext.createGain();
                     gainNode2.gain.value = audioState.volume2;
@@ -808,6 +810,14 @@
                     setFinishedUI(videoURL);
                     mediaRecorder = null;
                 };
+
+                // ** SỬA LỖI: Thêm lại sự kiện để tự động dừng ghi hình **
+                localAudioPlayer1.addEventListener('ended', () => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        console.log('Âm thanh chính đã kết thúc, tự động dừng ghi hình.');
+                        stopRecording();
+                    }
+                });
 
                 localAudioContext.resume().then(() => {
                     localAudioPlayer1.play().catch(e => console.error("Lỗi phát âm thanh 1:", e));
@@ -876,7 +886,7 @@
 			});
 		}
 
-        // --- HÀM CHUYỂN ĐỔI MP4 ĐÃ ĐƯỢC CẢI TIẾN ---
+        // --- HÀM CHUYỂN ĐỔI MP4 ĐÃ ĐƯỢC NÂNG CẤP TOÀN DIỆN ---
         async function convertToMp4() {
             if (!webmBlob) {
                 alert('Không tìm thấy video để chuyển đổi. Vui lòng tạo video trước.');
@@ -887,56 +897,91 @@
                 return;
             }
 
-            const convertButtons = document.querySelectorAll('[id^="convert-btn"]');
+            const convertButtons = document.querySelectorAll('[id^="convert-btn"], #recording-convert-btn');
+            const statusDivs = document.querySelectorAll('[id^="convert-status"]');
+
             convertButtons.forEach(btn => {
                 btn.disabled = true;
-                btn.innerHTML = '<div class="loader mx-auto"></div>';
+                btn.innerHTML = '<div class="loader mx-auto" style="width: 20px; height: 20px;"></div>';
             });
+            statusDivs.forEach(div => {
+                div.textContent = 'Đang gửi file... Quá trình này có thể mất vài phút.';
+                div.classList.remove('text-red-500');
+                div.classList.add('text-gray-600');
+            });
+            
+            // ** Thêm cơ chế Watchdog **
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                controller.abort();
+            }, 90000); // Hủy sau 90 giây
 
             try {
                 const formData = new FormData();
                 formData.append('video', webmBlob, 'video-to-convert.webm');
 
-                console.log(`Đang gửi file ${ (webmBlob.size / (1024*1024)).toFixed(2) } MB đến ${BACKEND_URL}/convert`);
+                const fullUrl = `${BACKEND_URL.replace(/\/$/, '')}/convert`;
+                console.log(`Đang gửi file ${ (webmBlob.size / (1024*1024)).toFixed(2) } MB đến ${fullUrl}`);
 
-                const response = await fetch(`${BACKEND_URL}/convert`, {
+                statusDivs.forEach(div => div.textContent = 'Đã gửi file. Máy chủ đang xử lý...');
+
+                const response = await fetch(fullUrl, {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    signal: controller.signal // Gắn watchdog vào yêu cầu
                 });
+                
+                clearTimeout(timeoutId);
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    throw new Error(`Lỗi từ máy chủ: ${response.status} ${response.statusText}. Chi tiết: ${errorText}`);
+                    throw new Error(`Lỗi từ máy chủ (${response.status}).`);
                 }
 
-                // Nhận file mp4 dưới dạng blob
-                const mp4Blob = await response.blob();
-                
-                // Tạo URL tạm thời cho file blob và kích hoạt tải về
-                const url = window.URL.createObjectURL(mp4Blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = `converted_${Date.now()}.mp4`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
+                statusDivs.forEach(div => div.textContent = 'Đang tải file MP4 về...');
+                const jsonResponse = await response.json(); // Nhận JSON thay vì blob
 
-                // Ẩn nút sau khi thành công
+                if (!jsonResponse || !jsonResponse.downloadUrl) {
+                    throw new Error('Máy chủ không trả về link tải file.');
+                }
+                
+                // Mở link Cloudinary trong tab mới để người dùng tự tải về
+                window.open(jsonResponse.downloadUrl, '_blank');
+
                 convertButtons.forEach(btn => {
                     btn.style.display = 'none';
                 });
+                statusDivs.forEach(div => {
+                    div.innerHTML = `Chuyển đổi thành công! <a href="${jsonResponse.downloadUrl}" target="_blank" class="text-blue-600 underline">Nhấn vào đây nếu file không tự mở.</a>`;
+                });
 
             } catch (error) {
+                clearTimeout(timeoutId);
                 console.error('Lỗi khi chuyển đổi:', error);
-                alert('Đã có lỗi xảy ra trong quá trình chuyển đổi file. Vui lòng kiểm tra Console (F12) để biết chi tiết.');
-                // Kích hoạt lại các nút nếu có lỗi
-                 convertButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.innerHTML = 'Thử lại chuyển đổi';
+                
+                let errorMessage = 'Lỗi không xác định. Vui lòng thử lại.';
+                if (error.name === 'AbortError') {
+                    errorMessage = 'Quá trình xử lý quá lâu và đã bị hủy. Hãy thử với video ngắn hơn.';
+                } else if (error.message.includes('Lỗi từ máy chủ')) {
+                    errorMessage = 'Máy chủ gặp lỗi khi xử lý. Vui lòng thử lại sau.';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại mạng.';
+                }
+
+                statusDivs.forEach(div => {
+                    div.textContent = errorMessage;
+                    div.classList.add('text-red-500');
                 });
+                resetConvertButtons();
             }
+        }
+
+        function resetConvertButtons() {
+            const convertButtons = document.querySelectorAll('[id^="convert-btn"], #recording-convert-btn');
+            convertButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.innerHTML = 'Thử lại chuyển đổi';
+            });
         }
     </script>
 </body>
