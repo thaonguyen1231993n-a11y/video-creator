@@ -287,6 +287,8 @@
                             <span class="btn-text">Chuyển sang MP4</span>
                             <div class="loader btn-loader hidden" style="width: 16px; height: 16px; border-width: 2px;"></div>
                          </button>
+                         <!-- ** NÂNG CẤP: Thêm nút tải MP4 ** -->
+                         <a id="download-mp4-link-${device}" target="_blank" class="w-full mt-2 text-center hidden bg-purple-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-purple-700">Tải về MP4</a>
                          <div id="convert-status-${device}" class="text-xs text-center text-gray-600 mt-2"></div>
                          <button id="new-video-btn-${device}" class="w-full mt-2 bg-gray-200 text-gray-800 font-bold ${buttonPadding} rounded-lg hover:bg-gray-300 transition">Tạo mới</button>
                     </div>
@@ -319,6 +321,8 @@
                             <span class="btn-text">Chuyển MP4</span>
                             <div class="loader btn-loader hidden" style="width: 16px; height: 16px; border-width: 2px;"></div>
                         </button>
+                        <!-- ** NÂNG CẤP: Thêm nút tải MP4 cho mobile ** -->
+                        <a id="recording-download-mp4-link" target="_blank" class="hidden bg-purple-600 text-white font-bold py-2 px-4 rounded-lg">Tải MP4</a>
                         <button id="recording-new-btn" class="hidden bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg">Làm lại</button>
                     </div>
                     <button id="recording-stop-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Dừng</button>
@@ -677,6 +681,7 @@
                 document.getElementById('recording-download-link').classList.add('hidden');
                 document.getElementById('recording-new-btn').classList.add('hidden');
                 document.getElementById('recording-convert-btn')?.classList.add('hidden');
+                document.getElementById('recording-download-mp4-link')?.classList.add('hidden');
             }
         }
         
@@ -695,13 +700,16 @@
                 const convertBtn = el.querySelector('[id^="convert-btn"]');
                 if (convertBtn) {
                     if (fileExtension === 'webm') {
-                        convertBtn.classList.remove('hidden');
-                        convertBtn.style.display = 'block';
+                        convertBtn.style.display = 'flex';
                         resetConvertButtons(); // Reset to initial state
                     } else {
                         convertBtn.style.display = 'none';
                     }
                 }
+                // Ẩn nút tải MP4 khi mới ghi xong
+                const mp4Link = el.querySelector('[id^="download-mp4-link"]');
+                if(mp4Link) mp4Link.style.display = 'none';
+
                  // Xóa thông báo cũ
                 const statusDiv = el.querySelector('[id^="convert-status"]');
                 if (statusDiv) statusDiv.textContent = '';
@@ -715,10 +723,12 @@
 
                 const downloadLink = document.getElementById('recording-download-link');
                 const mobileConvertBtn = document.getElementById('recording-convert-btn');
+                const mobileMp4Link = document.getElementById('recording-download-mp4-link');
 
                 if (isIOS) {
                     downloadLink.classList.add('hidden'); 
                     if (mobileConvertBtn) mobileConvertBtn.classList.add('hidden');
+                    if (mobileMp4Link) mobileMp4Link.classList.add('hidden');
                 } else {
                     if (downloadLink.href) URL.revokeObjectURL(downloadLink.href);
                     downloadLink.href = videoURL;
@@ -734,6 +744,7 @@
                             mobileConvertBtn.classList.add('hidden');
                         }
                     }
+                    if(mobileMp4Link) mobileMp4Link.classList.add('hidden');
                 }
             }
 
@@ -945,8 +956,15 @@
                 // Lấy link mp4 từ kết quả
                 const mp4Url = uploadResult.eager[0].secure_url;
 
+                // ** NÂNG CẤP: Hiển thị nút tải MP4 nổi bật **
+                document.querySelectorAll('[id^="download-mp4-link-"], #recording-download-mp4-link').forEach(link => {
+                    link.href = mp4Url;
+                    link.classList.remove('hidden');
+                    link.style.display = 'inline-flex'; // Hoặc 'flex' tùy vào layout
+                });
+
                 statusDivs.forEach(div => {
-                    div.innerHTML = `Thành công! <a href="${mp4Url}" target="_blank" class="text-blue-600 underline">Nhấn vào đây để xem hoặc tải về.</a>`;
+                    div.textContent = 'Chuyển đổi thành công!';
                 });
                 convertButtons.forEach(btn => btn.style.display = 'none');
 
