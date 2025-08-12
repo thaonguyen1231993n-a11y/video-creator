@@ -2,15 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
-// --- TỰ KIỂM TRA BIẾN MÔI TRƯỜG ---
+// --- PHIÊN BẢN GỠ LỖI ---
+// Tạm thời vô hiệu hóa việc dừng ứng dụng để kiểm tra log
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey = process.env.CLOUDINARY_API_KEY;
 const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-if (!cloudName || !apiKey || !apiSecret) {
-  console.error('!!!!!! LỖI NGHIÊM TRỌNG: Thiếu cấu hình Cloudinary.');
-  process.exit(1);
-}
+// if (!cloudName || !apiKey || !apiSecret) {
+//   console.error('!!!!!! LỖI NGHIÊM TRỌNG: Thiếu cấu hình Cloudinary.');
+//   process.exit(1);
+// }
 
 // Cấu hình Cloudinary
 cloudinary.config({ 
@@ -25,28 +26,30 @@ const port = process.env.PORT || 3000;
 
 app.use(cors());
 
-// Endpoint để kiểm tra
+// Endpoint để kiểm tra và ghi log
 app.get('/', (req, res) => {
-    res.send('Backend đang hoạt động. Sẵn sàng cấp chữ ký tải lên.');
+    console.log('--- KIỂM TRA BIẾN MÔI TRƯỜNG ---');
+    console.log(`CLOUDINARY_CLOUD_NAME: ${cloudName ? 'OK' : '!!! THIẾU !!!'}`);
+    console.log(`CLOUDINARY_API_KEY: ${apiKey ? 'OK' : '!!! THIẾU !!!'}`);
+    console.log(`CLOUDINARY_API_SECRET: ${apiSecret ? 'OK' : '!!! THIẾU !!!'}`);
+    console.log('------------------------------------');
+    res.send('Backend đang hoạt động. Vui lòng kiểm tra tab "Logs" trên Render để xem trạng thái cấu hình.');
 });
 
 // --- Endpoint mới: Cấp chữ ký bảo mật ---
 app.get('/api/sign-upload', (req, res) => {
-    // Tạo một timestamp (tính bằng giây)
-    const timestamp = Math.round((new Date).getTime()/1000);
+    if (!cloudName || !apiKey || !apiSecret) {
+        return res.status(500).json({ error: "Lỗi cấu hình máy chủ: Thiếu thông tin Cloudinary." });
+    }
 
-    // ** SỬA LỖI: Ký vào TẤT CẢ các tham số sẽ được gửi từ frontend **
-    // Tham số `eager` phải được bao gồm trong quá trình tạo chữ ký
+    const timestamp = Math.round((new Date).getTime()/1000);
     const params_to_sign = {
         timestamp: timestamp,
         eager: 'f_mp4,vc_h264,ac_aac'
     };
 
     try {
-        // Dùng API Secret để tạo chữ ký
         const signature = cloudinary.utils.api_sign_request(params_to_sign, apiSecret);
-        
-        // Gửi chữ ký và timestamp về cho frontend
         res.json({
             signature: signature,
             timestamp: timestamp,
