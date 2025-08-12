@@ -35,10 +35,11 @@ app.get('/api/sign-upload', (req, res) => {
     // Tạo một timestamp (tính bằng giây)
     const timestamp = Math.round((new Date).getTime()/1000);
 
-    // ** SỬA LỖI: Chỉ ký vào timestamp **
-    // Các tham số khác như 'eager' sẽ được gửi từ frontend và không cần ký
+    // ** SỬA LỖI: Ký vào TẤT CẢ các tham số sẽ được gửi từ frontend **
+    // Tham số `eager` phải được bao gồm trong quá trình tạo chữ ký
     const params_to_sign = {
-        timestamp: timestamp
+        timestamp: timestamp,
+        eager: 'f_mp4,vc_h264,ac_aac'
     };
 
     try {
