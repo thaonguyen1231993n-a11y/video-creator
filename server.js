@@ -34,22 +34,25 @@ app.get('/', (req, res) => {
 // --- Endpoint cấp chữ ký bảo mật ---
 app.get('/api/sign-upload', (req, res) => {
     const timestamp = Math.round((new Date).getTime()/1000);
+    const eager_transformation = 'f_mp4,vc_h264,ac_aac'; // Định nghĩa chuỗi chuyển đổi
 
     // Ký vào tất cả các tham số sẽ được gửi từ frontend (trừ file và api_key)
     const params_to_sign = {
         timestamp: timestamp,
-        eager: 'f_mp4,vc_h264,ac_aac'
+        eager: eager_transformation
     };
 
     try {
         // Dùng API Secret để tạo chữ ký
         const signature = cloudinary.utils.api_sign_request(params_to_sign, apiSecret);
         
-        // Gửi các thông tin cần thiết về cho frontend
+        // Gửi TẤT CẢ các thông tin cần thiết về cho frontend
         res.json({
             signature: signature,
             timestamp: timestamp,
-            api_key: apiKey
+            api_key: apiKey,
+            cloud_name: cloudName, // Thêm cloud_name
+            eager: eager_transformation // Thêm chuỗi eager
         });
     } catch (error) {
         console.error("Lỗi khi tạo chữ ký:", error);
