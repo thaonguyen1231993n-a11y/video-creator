@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trình tạo Video từ Ảnh và Nhạc (Tối ưu hóa)</title>
+	<!-- Google tag (gtag.js) -->
+	<script async src="https://www.googletagmanager.com/gtag/js?id=G-DQWQTWXMZL"></script>
+	<script>
+	  window.dataLayer = window.dataLayer || [];
+	  function gtag(){dataLayer.push(arguments);}
+	  gtag('js', new Date());
+
+	  gtag('config', 'G-DQWQTWXMZL');
+	</script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; overscroll-behavior: none; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #991b1b; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .theme-bg-primary { background-color: #991b1b; }
+        .theme-text-primary { color: #991b1b; }
+
+        .h-dynamic-screen { height: 100vh; height: calc(var(--vh, 1vh) * 100); }
+
+        .mobile-toolbar::-webkit-scrollbar { display: none; }
+        .toolbar-btn.active { background-color: #fee2e2; color: #991b1b; }
+
+        .modal-backdrop { background-color: rgba(0,0,0,0.5); transition: opacity 0.3s ease; }
+        .modal-content { transform: translateY(100%); transition: transform 0.3s ease; }
+        .modal-backdrop.active .modal-content { transform: translateY(0); }
+
+        @media (min-width: 768px) { .mobile-ui { display: none !important; } }
+
+        .effect-checkbox:checked + label, .logo-pos-radio:checked + label, .ratio-btn.active {
+            background-color: #991b1b; color: white; border-color: #991b1b;
+        }
+        .switch input:checked + .slider { background-color: #991b1b; }
+        .thumbnail-container { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+        .thumbnail { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 2px solid transparent; }
+		
+		.ios-guide-modal {
+			position: fixed; inset: 0; background: rgba(0,0,0,0.7); 
+			display: flex; align-items: center; justify-content: center; z-index: 999;
+			opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+		}
+		.ios-guide-modal.visible {
+			opacity: 1; pointer-events: auto;
+		}
+		.ios-guide-content {
+			background: white; padding: 20px; border-radius: 12px; text-align: center; 
+			max-width: 90%; width: 350px;
+			transform: scale(0.95); transition: transform 0.3s ease;
+		}
+		.ios-guide-modal.visible .ios-guide-content {
+			transform: scale(1);
+		}
+		.ios-guide-content h3 { font-weight: 700; font-size: 1.125rem; margin-bottom: 10px; color: #333; }
+		.ios-guide-content p { margin-bottom: 15px; color: #555; font-size: 0.9rem; }
+		.ios-guide-content ol { text-align: left; margin-bottom: 20px; list-style-position: inside; padding-left: 10px; font-size: 0.9rem; }
+		.ios-guide-content li { margin-bottom: 8px; }
+		.ios-guide-content .share-icon { display: inline-block; width: 20px; height: 20px; vertical-align: middle; margin: 0 2px; }
+		.ios-guide-content .action-button { 
+			display: block; background-color: #991b1b; color: white; 
+			padding: 12px; border-radius: 8px; text-decoration: none; font-weight: 600;
+		}
+    </style>
+</head>
+<body class="bg-rose-50 text-gray-800 flex flex-col md:flex-row h-dynamic-screen overflow-hidden">
+
+    <main class="flex-grow flex items-center justify-center p-4 bg-gray-800/50 md:w-2/3">
+        <canvas id="canvas" class="bg-black rounded-lg shadow-2xl max-w-full max-h-full"></canvas>
+    </main>
+
+    <aside id="sidebar" class="hidden md:w-1/3 md:flex md:flex-col bg-white shadow-2xl">
+        <div id="action-area-desktop" class="p-4 border-b bg-white flex-shrink-0"></div>
+        <div class="flex-grow p-4 overflow-y-auto">
+            <div id="desktop-panels">
+                <div id="ratio-panel-desktop" class="mb-6"></div>
+                <div id="effects-panel-desktop" class="mb-6"></div>
+                <div id="logo-panel-desktop"></div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="mobile-ui fixed bottom-0 left-0 right-0 z-20 flex flex-col">
+        <div id="modals-container"></div>
+        <nav id="mobile-toolbar" class="w-full bg-white border-t p-1 flex justify-around items-center"></nav>
+        <div id="mobile-recording-bar" class="w-full bg-white border-t p-2 hidden"></div>
+    </div>
+
+    <script>
+        // --- DYNAMIC VIEWPORT HEIGHT FIX ---
+        const setVh = () => { document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`); };
+        window.addEventListener('resize', setVh);
+        setVh();
+
+        // --- STATE & CONFIG ---
+        let imageFiles = [], audioFile1 = null, audioFile2 = null, logoFile = null, mediaRecorder;
+        let animationFrameId, recordingStartTime = 0;
+        let currentAspectRatio = '16:9', activeEffects = new Set();
+        let particles = { sparkles: [], clouds: [], lotus: [], leaves: [], rain: [], lightRays: [] };
+        let slideshowState = { currentIndex: 0, transitionProgress: 0, imageDuration: 4000, transitionDuration: 1000 };
+        let zoomPanState = { level: 1.0, dir: 1, x: 0.5, y: 0.5, targetX: 0.5, targetY: 0.5 };
+        let logoState = { enabled: false, size: 0.15, position: 'bottom-right' };
+        let audioState = { volume1: 1.0, volume2: 0.5 };
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        // *** BỔ SUNG 1: Thêm biến để lưu trữ video webm ***
+        let webmBlob = null; 
+
+        // --- RECORDER OPTIMIZATION ---
+        // *** BỔ SUNG 2: Ưu tiên WEBM để đảm bảo ghi hình ổn định, đây là nền tảng cho chức năng chuyển đổi MP4 ***
+        const MimeTypes = [
+            'video/webm; codecs=vp9,opus', // Ưu tiên hàng đầu vì ổn định trên Chrome, Firefox
+            'video/webm',
+            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"', // Dùng làm phương án dự phòng, chủ yếu cho Safari
+            'video/mp4',
+        ];
+        function getSupportedMimeType() {
+            for (const mimeType of MimeTypes) {
+                if (MediaRecorder.isTypeSupported(mimeType)) {
+                    console.log(`Using supported MIME type: ${mimeType}`);
+                    return mimeType;
+                }
+            }
+            return null;
+        }
+        const supportedMimeType = getSupportedMimeType();
+        // Tên file sẽ là webm nếu trình duyệt chọn webm, ngược lại là mp4
+        const fileExtension = supportedMimeType && supportedMimeType.includes('webm') ? 'webm' : 'mp4';
+
+        const TOOLS = [
+            { id: 'images', label: 'Ảnh', icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>` },
+            { id: 'music', label: 'Nhạc', icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 6l12-3" /></svg>` },
+            { id: 'ratio', label: 'Tỷ Lệ', icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 0h-4m4 0l-5-5" /></svg>` },
+            { id: 'effects', label: 'Hiệu Ứng', icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16v4m-2-2h4m5 10v4m-2-2h4M17 3l-4.5 4.5M12 12l-4.5 4.5" /></svg>` },
+            { id: 'logo', label: 'Logo', icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 4l-3.5 3.5-3.5-3.5M12 18V2" /></svg>` },
+            { id: 'actions', label: 'Bắt Đầu', icon: `<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>` }
+        ];
+
+        const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
+
+        // --- INITIALIZATION ---
+        window.onload = () => {
+            populateUI();
+            addGlobalListeners();
+            setAspectRatio('16:9');
+            setIdleUI(); 
+        };
+
+        function populateUI() {
+            document.getElementById('action-area-desktop').innerHTML = generateActionAreaHTML('desktop');
+            document.getElementById('ratio-panel-desktop').innerHTML = generateRatioPanelHTML('desktop');
+            document.getElementById('effects-panel-desktop').innerHTML = generateEffectsPanelHTML('desktop');
+            document.getElementById('logo-panel-desktop').innerHTML = generateLogoPanelHTML('desktop');
+            
+            const toolbar = document.getElementById('mobile-toolbar');
+            const modalsContainer = document.getElementById('modals-container');
+            
+            toolbar.innerHTML = TOOLS.map(tool => `
+                <button data-modal-id="modal-${tool.id}" class="toolbar-btn flex-1 flex flex-col items-center p-2 rounded-lg space-y-1">
+                    ${tool.icon}
+                    <span class="text-xs">${tool.label}</span>
+                </button>
+            `).join('');
+
+            modalsContainer.innerHTML = `
+                ${generateModal('images', 'Chèn Ảnh', generateImagePanelHTML('mobile'))}
+                ${generateModal('music', 'Chèn Nhạc', generateMusicPanelHTML('mobile'))}
+                ${generateModal('ratio', 'Tỷ Lệ', generateRatioPanelHTML('mobile'))}
+                ${generateModal('effects', 'Hiệu Ứng', generateEffectsPanelHTML('mobile'))}
+                ${generateModal('logo', 'Chèn Logo', generateLogoPanelHTML('mobile'))}
+                ${generateModal('actions', 'Xuất Video', generateStartStopHTML('mobile'))}
+            `;
+            
+            document.getElementById('mobile-recording-bar').innerHTML = generateRecordingBarHTML();
+        }
+
+        // --- HTML GENERATION FUNCTIONS ---
+        function generateModal(id, title, content) {
+            return `
+                <div id="modal-${id}" class="modal-backdrop fixed inset-0 z-30 flex items-end justify-center opacity-0 pointer-events-none">
+                    <div class="absolute inset-0" data-close-modal></div>
+                    <div class="modal-content bg-white w-full max-w-lg rounded-t-2xl p-4 relative max-h-[75vh] overflow-y-auto">
+                        <h3 class="font-bold text-lg mb-4 theme-text-primary">${title}</h3>
+                        ${content}
+                        <button data-close-modal class="absolute top-3 right-3 text-gray-500 hover:text-gray-800">
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        function generateImagePanelHTML(device) {
+            return `
+                <label for="image-upload-${device}" class="w-full border-2 border-dashed rounded-lg p-3 text-center cursor-pointer hover:bg-gray-50 transition block mb-4">
+                    <span class="font-semibold theme-text-primary">Chọn một hoặc nhiều ảnh</span>
+                    <span id="image-count-${device}" class="block text-xs text-gray-500 truncate mt-1">Chưa chọn ảnh nào</span>
+                </label>
+                <input id="image-upload-${device}" type="file" class="hidden" accept="image/*" multiple>
+                <div id="thumbnail-container-${device}" class="thumbnail-container"></div>
+            `;
+        }
+        function generateMusicPanelHTML(device) {
+             return `
+                <div class="grid grid-cols-1 gap-4">
+                    ${generateAudioInputHTML('1', 'Âm thanh chính', device)}
+                    ${generateAudioInputHTML('2', 'Nhạc nền', device)}
+                </div>
+            `;
+        }
+        function generateRatioPanelHTML(device) {
+            return `
+                <div id="ratio-controls-${device}" class="grid grid-cols-2 gap-2">
+                    <button data-ratio="16:9" class="ratio-btn px-3 py-2 border rounded-lg font-semibold transition text-sm active">16:9 (Ngang)</button>
+                    <button data-ratio="9:16" class="ratio-btn px-3 py-2 border rounded-lg font-semibold transition text-sm">9:16 (Dọc)</button>
+                    <button data-ratio="1:1" class="ratio-btn px-3 py-2 border rounded-lg font-semibold transition text-sm">1:1 (Vuông)</button>
+                    <button data-ratio="4:3" class="ratio-btn px-3 py-2 border rounded-lg font-semibold transition text-sm">4:3 (Cổ điển)</button>
+                </div>
+            `;
+        }
+        function generateEffectsPanelHTML(device) {
+            return `
+                <div id="effects-container-${device}" class="grid grid-cols-2 gap-2">
+                     <input type="checkbox" id="effect-slideshow-${device}" value="slideshow" class="hidden effect-checkbox"><label for="effect-slideshow-${device}" class="text-sm text-center font-medium border rounded-lg p-3 cursor-pointer transition">Chuyển ảnh (Fade)</label>
+                     <input type="checkbox" id="effect-blur-zoom-${device}" value="blur-zoom" class="hidden effect-checkbox"><label for="effect-blur-zoom-${device}" class="text-sm text-center font-medium border rounded-lg p-3 cursor-pointer transition">Nền Mờ & Zoom</label>
+                     <input type="checkbox" id="effect-light-rays-${device}" value="lightRays" class="hidden effect-checkbox"><label for="effect-light-rays-${device}" class="text-sm text-center font-medium border rounded-lg p-3 cursor-pointer transition">Tia Sáng</label>
+                     <input type="checkbox" id="effect-sparkles-${device}" value="sparkles" class="hidden effect-checkbox"><label for="effect-sparkles-${device}" class="text-sm text-center font-medium border rounded-lg p-3 cursor-pointer transition">Lấp Lánh</label>
+                     <input type="checkbox" id="effect-lotus-${device}" value="lotus" class="hidden effect-checkbox"><label for="effect-lotus-${device}" class="text-sm text-center font-medium border rounded-lg p-3 cursor-pointer transition">Hoa Sen Rơi</label>
+                     <input type="checkbox" id="effect-aura-${device}" value="aura" class="hidden effect-checkbox"><label for="effect-aura-${device}" class="text-sm text-center font-medium border rounded-lg p-3 cursor-pointer transition">Hào Quang</label>
+                </div>
+            `;
+        }
+        function generateLogoPanelHTML(device) {
+            return `
+                <label for="logo-upload-${device}" class="w-full border-2 border-dashed rounded-lg p-3 text-center cursor-pointer hover:bg-gray-50 transition block mb-4">
+                    <span class="font-semibold theme-text-primary">Tải lên Logo (.png)</span>
+                    <span id="logo-name-${device}" class="block text-xs text-gray-500 truncate mt-1">Chưa chọn</span>
+                </label>
+                <input id="logo-upload-${device}" type="file" class="hidden" accept="image/png">
+                <div id="logo-controls-${device}" class="hidden">
+                     <div class="flex items-center justify-between mb-4">
+                        <span class="font-semibold text-gray-700">Hiển thị Logo</span>
+                        <label class="switch">
+                            <input type="checkbox" id="logo-toggle-${device}">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <label for="logo-size-${device}" class="block text-sm font-medium text-gray-700">Kích thước</label>
+                    <input id="logo-size-${device}" type="range" min="5" max="50" value="15" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Vị trí</label>
+                    <div id="logo-position-${device}" class="grid grid-cols-2 gap-2">
+                        <input type="radio" name="logo-pos-${device}" id="pos-tl-${device}" value="top-left" class="hidden logo-pos-radio"><label for="pos-tl-${device}" class="text-xs text-center font-medium border rounded-lg p-2 cursor-pointer transition">Trên-Trái</label>
+                        <input type="radio" name="logo-pos-${device}" id="pos-tr-${device}" value="top-right" class="hidden logo-pos-radio"><label for="pos-tr-${device}" class="text-xs text-center font-medium border rounded-lg p-2 cursor-pointer transition">Trên-Phải</label>
+                        <input type="radio" name="logo-pos-${device}" id="pos-bl-${device}" value="bottom-left" class="hidden logo-pos-radio"><label for="pos-bl-${device}" class="text-xs text-center font-medium border rounded-lg p-2 cursor-pointer transition">Dưới-Trái</label>
+                        <input type="radio" name="logo-pos-${device}" id="pos-br-${device}" value="bottom-right" class="hidden logo-pos-radio" checked><label for="pos-br-${device}" class="text-xs text-center font-medium border rounded-lg p-2 cursor-pointer transition">Dưới-Phải</label>
+                    </div>
+                </div>
+            `;
+        }
+        function generateAudioInputHTML(id, label, device, isCompact = false) {
+            const padding = isCompact ? 'p-2' : 'p-3';
+            const textSize = isCompact ? 'text-xs' : 'text-sm';
+            return `
+                <div class="flex-1 border-2 border-dashed rounded-lg ${padding} text-center flex flex-col justify-between">
+                    <label for="audio-upload-${id}-${device}" class="cursor-pointer">
+                        <span class="font-semibold theme-text-primary ${textSize}">${label}</span>
+                        <span id="audio-name-${id}-${device}" class="block text-xs text-gray-500 truncate mt-1 max-w-[80px] mx-auto">Chưa chọn</span>
+                    </label>
+                    <input id="audio-upload-${id}-${device}" type="file" class="hidden" accept="audio/*">
+                    <div class="mt-1">
+                        <input id="audio-volume-${id}-${device}" type="range" min="0" max="1" step="0.05" value="${id === '1' ? audioState.volume1 : audioState.volume2}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+            `;
+        }
+        function generateStartStopHTML(device, isCompact = false) {
+            const buttonPadding = isCompact ? 'py-2 px-3 text-sm' : 'py-3 px-4';
+            return `
+                <div class="flex gap-2">
+                    <button id="start-btn-${device}" class="w-full theme-bg-primary text-white font-bold ${buttonPadding} rounded-lg hover:bg-rose-800 transition disabled:bg-rose-300">Bắt đầu</button>
+                    <button id="stop-btn-${device}" class="w-full bg-gray-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-gray-700 transition disabled:bg-gray-300 hidden" disabled>Dừng</button>
+                    <div id="download-section-${device}" class="w-full hidden">
+                         <a id="download-link-${device}" class="w-full text-center inline-block bg-green-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-green-700">Tải Video (.${fileExtension})</a>
+                         <!-- *** BỔ SUNG 3: Thêm nút chuyển đổi MP4 *** -->
+                         <button id="convert-btn-${device}" class="w-full mt-2 bg-blue-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-blue-700 transition">Chuyển sang MP4</button>
+                         <button id="new-video-btn-${device}" class="w-full mt-2 bg-gray-200 text-gray-800 font-bold ${buttonPadding} rounded-lg hover:bg-gray-300 transition">Tạo mới</button>
+                    </div>
+                </div>
+            `;
+        }
+        function generateActionAreaHTML(device) {
+             return `
+                <div class="grid grid-cols-3 gap-2">
+                    <label for="image-upload-${device}-action" class="col-span-1 border-2 border-dashed rounded-lg p-2 text-center cursor-pointer hover:bg-gray-50 transition flex flex-col justify-center items-center">
+                        <span class="font-semibold theme-text-primary text-xs">Ảnh</span>
+                        <span id="image-count-${device}-action" class="block text-xs text-gray-500 truncate mt-1">0 ảnh</span>
+                    </label>
+                    <input id="image-upload-${device}-action" type="file" class="hidden" accept="image/*" multiple>
+                    ${generateAudioInputHTML('1', 'Âm thanh 1', `${device}-action`, true)}
+                    ${generateAudioInputHTML('2', 'Âm thanh 2', `${device}-action`, true)}
+                </div>
+                <div class="mt-2">
+                ${generateStartStopHTML(device, true)}
+                </div>
+            `;
+        }
+        function generateRecordingBarHTML() {
+            return `
+                <div class="flex items-center justify-between w-full">
+                    <div id="recording-status" class="flex items-center text-sm font-medium"></div>
+                    <button id="recording-stop-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Dừng</button>
+                    <a id="recording-download-link" class="hidden bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Tải về</a>
+                    <!-- *** BỔ SUNG 4: Thêm nút chuyển đổi MP4 cho mobile *** -->
+                    <button id="recording-convert-btn" class="hidden bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Chuyển MP4</button>
+                    <button id="recording-new-btn" class="hidden bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg">Làm lại</button>
+                </div>
+            `;
+        }
+
+        // --- GLOBAL EVENT LISTENERS ---
+        function addGlobalListeners() {
+            document.body.addEventListener('click', (e) => {
+                const toolbarBtn = e.target.closest('.toolbar-btn');
+                if (toolbarBtn) {
+                    document.querySelectorAll('.toolbar-btn').forEach(btn => btn.classList.remove('active'));
+                    toolbarBtn.classList.add('active');
+                    openModal(toolbarBtn.dataset.modalId);
+                }
+                if (e.target.closest('[data-close-modal]')) {
+                    closeAllModals();
+                }
+                const ratioBtn = e.target.closest('.ratio-btn');
+                if (ratioBtn) {
+                    setAspectRatio(ratioBtn.dataset.ratio);
+                }
+                if (e.target.closest('button')?.id.startsWith('start-btn')) startRecording();
+                if (e.target.closest('button')?.id.startsWith('stop-btn') || e.target.closest('button')?.id === 'recording-stop-btn') stopRecording();
+                if (e.target.closest('button')?.id.startsWith('new-video-btn') || e.target.closest('button')?.id === 'recording-new-btn') resetToEditMode();
+            });
+
+            document.body.addEventListener('change', (e) => {
+                if (e.target.closest('.effect-checkbox')) {
+                    if (e.target.checked) activeEffects.add(e.target.value);
+                    else activeEffects.delete(e.target.value);
+                    syncCheckboxes(e.target);
+                    drawStaticFrame();
+                }
+                if (e.target.id.startsWith('image-upload')) handleImageUpload(e.target.files);
+                if (e.target.id.startsWith('audio-upload-1')) handleAudioUpload(1, e.target.files[0]);
+                if (e.target.id.startsWith('audio-upload-2')) handleAudioUpload(2, e.target.files[0]);
+                if (e.target.id.startsWith('logo-upload')) handleLogoUpload(e.target.files[0]);
+                if (e.target.id.startsWith('logo-toggle')) {
+                    logoState.enabled = e.target.checked;
+                    syncCheckboxes(e.target);
+                    drawStaticFrame();
+                }
+                if (e.target.name && e.target.name.startsWith('logo-pos')) {
+                    logoState.position = e.target.value;
+                    syncRadios(e.target);
+                    drawStaticFrame();
+                }
+            });
+
+            document.body.addEventListener('input', (e) => {
+                if (e.target.id.startsWith('logo-size')) {
+                    logoState.size = e.target.value / 100;
+                    syncSliders(e.target);
+                    drawStaticFrame();
+                }
+                if (e.target.id.startsWith('audio-volume-1')) {
+                    audioState.volume1 = parseFloat(e.target.value);
+                    syncSliders(e.target);
+                }
+                if (e.target.id.startsWith('audio-volume-2')) {
+                    audioState.volume2 = parseFloat(e.target.value);
+                    syncSliders(e.target);
+                }
+            });
+        }
+
+        // --- UI SYNC & HANDLERS ---
+        function syncCheckboxes(source) {
+            const value = source.value;
+            const isChecked = source.checked;
+            document.querySelectorAll(`input[type="checkbox"][value="${value}"]`).forEach(box => box.checked = isChecked);
+        }
+        function syncRadios(source) {
+            const value = source.value;
+            const name = source.name.replace(/-desktop/g, '').replace(/-mobile/g, '').replace('-action','');
+            document.querySelectorAll(`input[type="radio"][name^="${name}"][value="${value}"]`).forEach(radio => radio.checked = true);
+        }
+        function syncSliders(source) {
+            const value = source.value;
+            const id = source.id.replace(/-desktop/g, '').replace(/-mobile/g, '').replace('-action','');
+            document.querySelectorAll(`input[type="range"][id^="${id}"]`).forEach(slider => slider.value = value);
+        }
+        function handleImageUpload(files) {
+            if (!files || files.length === 0) return;
+            imageFiles = []; 
+            const filePromises = Array.from(files).map(file => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = "anonymous";
+                    img.src = URL.createObjectURL(file);
+                    img.onload = () => {
+                        imageFiles.push(img);
+                        resolve(img);
+                    };
+                });
+            });
+
+            Promise.all(filePromises).then(() => {
+                document.querySelectorAll('[id^="image-count"]').forEach(el => el.textContent = `${imageFiles.length} ảnh`);
+                updateThumbnails();
+                drawStaticFrame();
+            });
+        }
+        function updateThumbnails() {
+            const containers = document.querySelectorAll('[id^="thumbnail-container"]');
+            containers.forEach(container => {
+                container.innerHTML = '';
+                imageFiles.forEach(img => {
+                    const thumb = document.createElement('img');
+                    thumb.src = img.src;
+                    thumb.className = 'thumbnail';
+                    container.appendChild(thumb);
+                });
+            });
+        }
+        function handleAudioUpload(id, file) {
+            if (!file) return;
+            if (id === 1) audioFile1 = file;
+            else audioFile2 = file;
+            document.querySelectorAll(`[id^="audio-name-${id}"]`).forEach(el => el.textContent = file.name);
+        }
+        function handleLogoUpload(file) {
+            if (!file) return;
+            logoFile = new Image();
+            logoFile.crossOrigin = "anonymous";
+            logoFile.src = URL.createObjectURL(file);
+            document.querySelectorAll('[id^="logo-name"]').forEach(el => el.textContent = file.name);
+            logoFile.onload = () => {
+                document.querySelectorAll('[id^="logo-controls"]').forEach(el => el.classList.remove('hidden'));
+                document.querySelectorAll('[id^="logo-toggle"]').forEach(el => el.checked = true);
+                logoState.enabled = true;
+                drawStaticFrame();
+            };
+        }
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            closeAllModals();
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('active');
+        }
+        function closeAllModals() {
+            document.querySelectorAll('.modal-backdrop').forEach(modal => {
+                modal.classList.add('opacity-0', 'pointer-events-none');
+                modal.classList.remove('active');
+            });
+            document.querySelectorAll('.toolbar-btn').forEach(btn => btn.classList.remove('active'));
+        }
+
+        // --- PERFORMANCE OPTIMIZATION ---
+        function setAspectRatio(ratio) {
+            currentAspectRatio = ratio;
+            const screenWidth = window.innerWidth;
+            const baseWidth = Math.min(1280, screenWidth * (screenWidth < 768 ? 1.5 : 1)); 
+            
+            let width, height;
+            switch (ratio) {
+                case '9:16': width = baseWidth * 9 / 16; height = baseWidth; break;
+                case '1:1': width = height = baseWidth; break;
+                case '4:3': width = baseWidth; height = baseWidth * 3 / 4; break;
+                default: width = baseWidth; height = baseWidth * 9 / 16; break;
+            }
+            canvas.width = Math.round(width);
+            canvas.height = Math.round(height);
+            document.querySelectorAll('.ratio-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.ratio === ratio));
+            drawStaticFrame();
+        }
+
+        // --- DRAWING & EFFECTS ---
+        function drawStaticFrame() { if (animationFrameId) cancelAnimationFrame(animationFrameId); renderAll(0); }
+        function renderAll(elapsedTime) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground(elapsedTime);
+            drawMainImage(elapsedTime);
+            if (activeEffects.has('aura')) renderAura();
+            if (activeEffects.has('lightRays')) renderParticles(particles.lightRays, 'lightRay');
+            if (activeEffects.has('clouds')) renderParticles(particles.clouds, 'cloud');
+            if (activeEffects.has('lotus')) renderParticles(particles.lotus, 'lotus');
+            if (activeEffects.has('sparkles')) renderParticles(particles.sparkles, 'sparkle');
+            if (logoFile && logoState.enabled) drawLogo();
+        }
+        function drawBackground(elapsedTime) {
+            if (activeEffects.has('blur-zoom') && imageFiles.length > 0) {
+                const img = imageFiles[slideshowState.currentIndex] || imageFiles[0];
+                ctx.save(); ctx.filter = 'blur(20px)';
+                const bgAspect = img.width / img.height;
+                let bgW, bgH;
+                if (canvas.width / canvas.height > bgAspect) { bgW = canvas.width * zoomPanState.level; bgH = bgW / bgAspect; } 
+                else { bgH = canvas.height * zoomPanState.level; bgW = bgH * bgAspect; }
+                ctx.drawImage(img, (canvas.width - bgW) / 2, (canvas.height - bgH) / 2, bgW, bgH);
+                ctx.restore();
+            } else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+        }
+        function drawMainImage(elapsedTime) {
+            if (imageFiles.length === 0) {
+                ctx.fillStyle = '#fff'; ctx.font = '30px Inter'; ctx.textAlign = 'center';
+                ctx.fillText('Xem trước video', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
+            if (activeEffects.has('slideshow') && imageFiles.length > 1) {
+                const totalCycleTime = slideshowState.imageDuration + slideshowState.transitionDuration;
+                const timeInCycle = elapsedTime % totalCycleTime;
+                
+                const imageIndex = Math.floor(elapsedTime / totalCycleTime) % imageFiles.length;
+                const nextImageIndex = (imageIndex + 1) % imageFiles.length;
+
+                const currentImg = imageFiles[imageIndex];
+                const nextImg = imageFiles[nextImageIndex];
+
+                let transitionProgress = 0;
+                if (timeInCycle > slideshowState.imageDuration) {
+                    transitionProgress = (timeInCycle - slideshowState.imageDuration) / slideshowState.transitionDuration;
+                }
+
+                ctx.globalAlpha = 1 - transitionProgress;
+                drawImageWithPanZoom(currentImg);
+                
+                if (transitionProgress > 0) {
+                    ctx.globalAlpha = transitionProgress;
+                    drawImageWithPanZoom(nextImg);
+                }
+                ctx.globalAlpha = 1;
+
+            } else {
+                drawImageWithPanZoom(imageFiles[0]);
+            }
+        }
+        function drawImageWithPanZoom(img) {
+            const canvasAspect = canvas.width / canvas.height; const imageAspect = img.width / img.height;
+            let sx=0, sy=0, sWidth=img.width, sHeight=img.height;
+            if (activeEffects.has('blur-zoom')) {
+                const zoom = 1 - (zoomPanState.level - 1) * 0.5;
+                sWidth = img.width * zoom; sHeight = img.height * zoom;
+                sx = (img.width - sWidth) * zoomPanState.x; sy = (img.height - sHeight) * zoomPanState.y;
+            }
+            let dWidth, dHeight, dx, dy;
+            if (imageAspect > canvasAspect) { dWidth = canvas.width; dHeight = dWidth / imageAspect; dx = 0; dy = (canvas.height - dHeight) / 2; } 
+            else { dHeight = canvas.height; dWidth = dHeight * imageAspect; dy = 0; dx = (canvas.width - dWidth) / 2; }
+            ctx.drawImage(img, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+        }
+        function drawLogo() {
+            const logoW = canvas.width * logoState.size; const logoH = logoW / (logoFile.width / logoFile.height);
+            const margin = canvas.width * 0.02; let x, y;
+            switch(logoState.position) {
+                case 'top-left': x = margin; y = margin; break;
+                case 'top-right': x = canvas.width - logoW - margin; y = margin; break;
+                case 'bottom-left': x = margin; y = canvas.height - logoH - margin; break;
+                default: x = canvas.width - logoW - margin; y = canvas.height - logoH - margin; break;
+            }
+            ctx.drawImage(logoFile, x, y, logoW, logoH);
+        }
+        function initializeEffects() {
+            for (let key in particles) particles[key] = [];
+            const isMobile = window.innerWidth < 768;
+            const sparkleCount = isMobile ? 25 : 50;
+            const lotusCount = isMobile ? 10 : 20;
+            const cloudCount = isMobile ? 5 : 10;
+            const lightRayCount = isMobile ? 4 : 8;
+
+            if (activeEffects.has('sparkles')) for (let i = 0; i < sparkleCount; i++) particles.sparkles.push(createParticle('sparkle'));
+            if (activeEffects.has('clouds')) for (let i = 0; i < cloudCount; i++) particles.clouds.push(createParticle('cloud'));
+            if (activeEffects.has('lotus')) for (let i = 0; i < lotusCount; i++) particles.lotus.push(createParticle('lotus'));
+            if (activeEffects.has('lightRays')) for (let i = 0; i < lightRayCount; i++) particles.lightRays.push(createParticle('lightRay'));
+            zoomPanState = { level: 1.0, dir: 1, x: 0.5, y: 0.5, targetX: Math.random(), targetY: Math.random() };
+        }
+        function createParticle(type) {
+            const p = { x: Math.random() * canvas.width, y: Math.random() * canvas.height };
+            switch(type) {
+                case 'sparkle': p.size = Math.random() * 2.5 + 1.5; p.opacity = Math.random() * 0.7 + 0.3; p.speedY = Math.random() * 0.6 + 0.3; p.speedX = (Math.random() - 0.5) * 0.3; break;
+                case 'cloud': p.size = Math.random() * 80 + 40; p.opacity = Math.random() * 0.3 + 0.15; p.speedX = Math.random() * 0.3 + 0.2; p.y = Math.random() * canvas.height * 0.8; break;
+                case 'lotus': p.y = -20; p.size = Math.random() * 20 + 15; p.opacity = Math.random() * 0.6 + 0.4; p.speedY = Math.random() * 1 + 0.5; p.speedX = (Math.random() - 0.5) * 0.6; p.rotation = Math.random() * Math.PI * 2; p.rotationSpeed = (Math.random() - 0.5) * 0.02; break;
+                case 'lightRay': p.angle = Math.random() * Math.PI * 2; p.speed = (Math.random() - 0.5) * 0.0005; p.opacity = Math.random() * 0.1 + 0.05; break;
+            }
+            return p;
+        }
+        function updateEffects() {
+            if (activeEffects.has('blur-zoom')) {
+                zoomPanState.level += 0.0001 * zoomPanState.dir;
+                if (zoomPanState.level > 1.05 || zoomPanState.level < 1.0) zoomPanState.dir *= -1;
+                zoomPanState.x += (zoomPanState.targetX - zoomPanState.x) * 0.001;
+                zoomPanState.y += (zoomPanState.targetY - zoomPanState.y) * 0.001;
+                if (Math.abs(zoomPanState.targetX - zoomPanState.x) < 0.01) zoomPanState.targetX = Math.random();
+                if (Math.abs(zoomPanState.targetY - zoomPanState.y) < 0.01) zoomPanState.targetY = Math.random();
+            }
+            particles.sparkles.forEach(p => { p.y -= p.speedY; p.x += p.speedX; if (p.y < 0) Object.assign(p, createParticle('sparkle'), {y: canvas.height}); });
+            particles.clouds.forEach(p => { p.x += p.speedX; if (p.x - p.size > canvas.width) Object.assign(p, createParticle('cloud'), {x: -p.size}); });
+            particles.lotus.forEach(p => { p.y += p.speedY; p.x += p.speedX; p.rotation += p.rotationSpeed; if (p.y - p.size > canvas.height) Object.assign(p, createParticle('lotus'), {y: -p.size}); });
+            particles.lightRays.forEach(p => p.angle += p.speed);
+        }
+        function renderParticles(arr, type) {
+            arr.forEach(p => {
+                ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rotation || 0); ctx.globalAlpha = p.opacity;
+                switch(type) {
+                    case 'sparkle': ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill(); break;
+                    case 'cloud': ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fill(); break;
+                    case 'lotus':
+                        ctx.fillStyle = '#ffc0cb'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(p.size / 2, -p.size, p.size, 0); ctx.quadraticCurveTo(p.size / 2, p.size / 4, 0, 0); ctx.fill();
+                        ctx.fillStyle = '#f195ad'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-p.size / 2, -p.size, -p.size, 0); ctx.quadraticCurveTo(-p.size / 2, p.size / 4, 0, 0); ctx.fill();
+                        break;
+                    case 'lightRay':
+                        ctx.restore(); ctx.save(); ctx.globalAlpha = p.opacity;
+                        const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height));
+                        gradient.addColorStop(0, 'rgba(255, 255, 220, 0.5)');
+                        gradient.addColorStop(1, 'rgba(255, 255, 220, 0)');
+                        ctx.fillStyle = gradient;
+                        ctx.translate(canvas.width / 2, canvas.height / 2); ctx.rotate(p.angle);
+                        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(canvas.width * 2, -50); ctx.lineTo(canvas.width * 2, 50); ctx.closePath(); ctx.fill();
+                        break;
+                }
+                ctx.restore();
+            });
+        }
+        function renderAura() {
+            const gradient = ctx.createRadialGradient(canvas.width / 2, 0, 0, canvas.width / 2, 0, canvas.height * 1.5);
+            gradient.addColorStop(0, 'rgba(255, 223, 100, 0.4)');
+            gradient.addColorStop(0.5, 'rgba(255, 223, 100, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // --- UI STATE MANAGEMENT ---
+        function setIdleUI() {
+            document.querySelectorAll('button, input, select').forEach(el => el.disabled = false);
+            document.querySelectorAll('[id^="start-btn"]').forEach(btn => btn.classList.remove('hidden'));
+            document.querySelectorAll('[id^="stop-btn"]').forEach(btn => btn.classList.add('hidden'));
+            document.querySelectorAll('[id^="download-section"]').forEach(el => el.classList.add('hidden'));
+            
+            if (window.innerWidth < 768) {
+                document.getElementById('mobile-toolbar').classList.remove('hidden');
+                document.getElementById('mobile-recording-bar').classList.add('hidden');
+            }
+        }
+        function setRecordingUIState() {
+            closeAllModals();
+            document.querySelectorAll('button, input, select').forEach(el => el.disabled = true);
+            
+            document.querySelectorAll('[id^="start-btn"]').forEach(btn => btn.classList.add('hidden'));
+            document.querySelectorAll('[id^="stop-btn"]').forEach(btn => {
+                btn.classList.remove('hidden');
+                btn.disabled = false;
+            });
+            
+            if (window.innerWidth < 768) {
+                document.getElementById('mobile-toolbar').classList.add('hidden');
+                document.getElementById('mobile-recording-bar').classList.remove('hidden');
+                document.getElementById('recording-status').innerHTML = '<div class="loader"></div><span class="ml-2">Đang ghi...</span>';
+                document.getElementById('recording-stop-btn').classList.remove('hidden');
+                document.getElementById('recording-stop-btn').disabled = false;
+                document.getElementById('recording-download-link').classList.add('hidden');
+                document.getElementById('recording-new-btn').classList.add('hidden');
+                document.getElementById('recording-convert-btn')?.classList.add('hidden');
+            }
+        }
+        
+        function setFinishedUI(videoURL) {
+            document.querySelectorAll('[id^="new-video-btn"], #recording-new-btn').forEach(btn => btn.disabled = false);
+
+            document.querySelectorAll('[id^="download-section"]').forEach(el => {
+                el.classList.remove('hidden');
+                const link = el.querySelector('[id^="download-link"]');
+                if (link) {
+                    if (link.href) URL.revokeObjectURL(link.href);
+                    link.href = videoURL;
+                    link.download = `video_${Date.now()}.${fileExtension}`;
+                }
+                // *** BỔ SUNG: Hiển thị nút chuyển đổi MP4 nếu file là webm ***
+                const convertBtn = el.querySelector('[id^="convert-btn"]');
+                if (convertBtn) {
+                    if (fileExtension === 'webm') {
+                        convertBtn.classList.remove('hidden');
+                        convertBtn.style.display = 'block';
+                        convertBtn.disabled = false;
+                        convertBtn.textContent = 'Chuyển sang MP4';
+                    } else {
+                        convertBtn.classList.add('hidden');
+                    }
+                }
+            });
+            document.querySelectorAll('[id^="start-btn"], [id^="stop-btn"]').forEach(btn => btn.classList.add('hidden'));
+
+            if (window.innerWidth < 768) {
+                document.getElementById('recording-status').textContent = 'Hoàn tất!';
+                document.getElementById('recording-stop-btn').classList.add('hidden');
+                document.getElementById('recording-new-btn').classList.remove('hidden');
+
+                const downloadLink = document.getElementById('recording-download-link');
+                const mobileConvertBtn = document.getElementById('recording-convert-btn');
+
+                if (isIOS) {
+                    downloadLink.classList.add('hidden'); 
+                    if (mobileConvertBtn) mobileConvertBtn.classList.add('hidden');
+                } else {
+                    if (downloadLink.href) URL.revokeObjectURL(downloadLink.href);
+                    downloadLink.href = videoURL;
+                    downloadLink.download = `video_${Date.now()}.${fileExtension}`;
+                    downloadLink.textContent = `Tải về (.${fileExtension})`;
+                    downloadLink.classList.remove('hidden');
+                    
+                    if (mobileConvertBtn) {
+                         if (fileExtension === 'webm') {
+                            mobileConvertBtn.classList.remove('hidden');
+                            mobileConvertBtn.disabled = false;
+                            mobileConvertBtn.textContent = 'Chuyển MP4';
+                        } else {
+                            mobileConvertBtn.classList.add('hidden');
+                        }
+                    }
+                }
+            }
+
+            if (isIOS && fileExtension === 'mp4') {
+                showIOSDownloadGuide(videoURL);
+            }
+        }
+
+        // --- RECORDING LIFECYCLE ---
+        function renderLoop() { const elapsedTime = Date.now() - recordingStartTime; updateEffects(); renderAll(elapsedTime); animationFrameId = requestAnimationFrame(renderLoop); }
+        
+		function startRecording() {
+            if (imageFiles.length === 0 || !audioFile1) {
+                alert('Vui lòng chọn ít nhất một ảnh và âm thanh chính!');
+                return;
+            }
+            if (mediaRecorder) return;
+            if (!supportedMimeType) {
+                alert('Rất tiếc, trình duyệt của bạn không hỗ trợ ghi video.');
+                return;
+            }
+            
+            setRecordingUIState();
+            let recordedChunks = [];
+            initializeEffects();
+            recordingStartTime = Date.now();
+
+            let localAudioContext, destination, localAudioPlayer1, localAudioPlayer2;
+
+            try {
+                localAudioContext = new AudioContext();
+                destination = localAudioContext.createMediaStreamDestination();
+                
+                localAudioPlayer1 = new Audio();
+                localAudioPlayer1.crossOrigin = "anonymous";
+                localAudioPlayer1.src = URL.createObjectURL(audioFile1);
+                localAudioPlayer1.loop = true;
+
+                const source1 = localAudioContext.createMediaElementSource(localAudioPlayer1);
+                const gainNode1 = localAudioContext.createGain();
+                gainNode1.gain.value = audioState.volume1;
+                source1.connect(gainNode1).connect(destination);
+                gainNode1.connect(localAudioContext.destination);
+
+                if (audioFile2) {
+                    localAudioPlayer2 = new Audio();
+                    localAudioPlayer2.crossOrigin = "anonymous";
+                    localAudioPlayer2.src = URL.createObjectURL(audioFile2);
+                    localAudioPlayer2.loop = true;
+                    const source2 = localAudioContext.createMediaElementSource(localAudioPlayer2);
+                    const gainNode2 = localAudioContext.createGain();
+                    gainNode2.gain.value = audioState.volume2;
+                    source2.connect(gainNode2).connect(destination);
+                    gainNode2.connect(localAudioContext.destination);
+                }
+                
+                const videoStream = canvas.captureStream(30);
+                const audioStream = destination.stream;
+                const localCombinedStream = new MediaStream([
+                    ...videoStream.getVideoTracks(), 
+                    ...audioStream.getAudioTracks()
+                ]);
+
+                mediaRecorder = new MediaRecorder(localCombinedStream, { mimeType: supportedMimeType });
+                
+                mediaRecorder.ondataavailable = (e) => e.data.size > 0 && recordedChunks.push(e.data);
+
+                mediaRecorder.onstop = () => {
+                    if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+                    localAudioPlayer1?.pause();
+                    localAudioPlayer2?.pause();
+                    localCombinedStream?.getTracks().forEach(track => track.stop());
+                    if (localAudioContext && localAudioContext.state !== 'closed') { localAudioContext.close(); }
+                    
+                    const blob = new Blob(recordedChunks, { type: supportedMimeType });
+                    
+                    // *** BỔ SUNG 8: Lưu blob để dùng cho chức năng chuyển đổi ***
+                    webmBlob = blob; 
+                    
+                    const videoURL = URL.createObjectURL(blob);
+                    
+                    setFinishedUI(videoURL);
+                    mediaRecorder = null;
+                };
+
+                localAudioContext.resume().then(() => {
+                    localAudioPlayer1.play().catch(e => console.error("Lỗi phát âm thanh 1:", e));
+                    localAudioPlayer2?.play().catch(e => console.error("Lỗi phát âm thanh 2:", e));
+
+                    setTimeout(() => {
+                        if (mediaRecorder && mediaRecorder.state === 'inactive') {
+                           mediaRecorder.start();
+                           renderLoop();
+                        }
+                    }, 150);
+
+                }).catch(e => {
+                    console.error("Không thể khởi động AudioContext:", e);
+                    alert("Đã xảy ra lỗi khi khởi động âm thanh. Vui lòng thử lại.");
+                    resetToEditMode();
+                });
+
+            } catch (error) {
+                console.error("Lỗi nghiêm trọng trong quá trình ghi:", error);
+                alert("Đã xảy ra lỗi không mong muốn. Vui lòng làm mới trang và thử lại.");
+                resetToEditMode();
+            }
+        }
+
+        function stopRecording() { 
+            if (mediaRecorder && mediaRecorder.state === 'recording') { 
+                document.querySelectorAll('[id^="stop-btn"], #recording-stop-btn').forEach(btn => btn.disabled = true);
+                mediaRecorder.stop(); 
+            } 
+        }
+        
+		function resetToEditMode() {
+            setIdleUI();
+			drawStaticFrame();
+            // *** BỔ SUNG 9: Xóa blob cũ khi tạo video mới ***
+            webmBlob = null;
+            // Xóa các link tải về cũ
+            document.querySelectorAll('.mp4-download-link').forEach(link => link.remove());
+		}
+
+		function showIOSDownloadGuide(url) {
+			const oldModal = document.getElementById('ios-guide-modal');
+			if (oldModal) oldModal.remove();
+
+			const guideHTML = `
+				<div id="ios-guide-modal" class="ios-guide-modal">
+					<div class="ios-guide-content">
+						<h3>Lưu Video trên iPhone/iPad</h3>
+						<p>Video sẽ mở trong tab mới. Để lưu về máy, hãy làm theo các bước sau:</p>
+						<ol>
+							<li>Nhấn vào nút <b>"Chia sẻ"</b> <img src="https://i.imgur.com/7RkF2nq.png" class="share-icon"> ở thanh công cụ.</li>
+							<li>Chọn <b>"Lưu vào Tệp"</b> (Save to Files).</li>
+							<li>Chọn thư mục và nhấn <b>Lưu</b>.</li>
+						</ol>
+						<a href="${url}" target="_blank" id="open-video-link" class="action-button">Mở Video để Bắt đầu</a>
+					</div>
+				</div>
+			`;
+			document.body.insertAdjacentHTML('beforeend', guideHTML);
+
+			const modal = document.getElementById('ios-guide-modal');
+			setTimeout(() => modal.classList.add('visible'), 10);
+
+			document.getElementById('open-video-link').addEventListener('click', () => {
+				modal.classList.remove('visible');
+				setTimeout(() => modal.remove(), 300);
+			});
+		}
+
+        // *** BỔ SUNG 10: Hàm giao tiếp với backend để chuyển đổi video ***
+        function convertToMp4() {
+            if (!webmBlob) {
+                alert('Không tìm thấy video để chuyển đổi. Vui lòng tạo video trước.');
+                return;
+            }
+
+            // Vô hiệu hóa các nút và hiển thị trạng thái đang xử lý
+            const convertButtons = document.querySelectorAll('[id^="convert-btn"], #recording-convert-btn');
+            convertButtons.forEach(btn => {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="loader mx-auto"></div>';
+            });
+
+            const formData = new FormData();
+            formData.append('video', webmBlob, 'video-to-convert.webm');
+
+            // Gửi yêu cầu đến backend
+            fetch('/convert', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Lỗi từ máy chủ: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.downloadUrl) {
+                    // Tạo một link tải MP4 mới và hiển thị nó
+                    const mp4Link = document.createElement('a');
+                    mp4Link.href = data.downloadUrl;
+                    mp4Link.textContent = 'Tải file MP4 đã chuyển đổi';
+                    // Thêm class để dễ dàng xóa sau này
+                    mp4Link.className = 'mp4-download-link w-full mt-2 text-center inline-block bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700';
+                    mp4Link.download = `video_converted_${Date.now()}.mp4`;
+
+                    // Tìm và chèn link mới vào khu vực tải về
+                    const downloadSectionDesktop = document.getElementById('download-section-desktop');
+                    if (downloadSectionDesktop) downloadSectionDesktop.appendChild(mp4Link.cloneNode(true));
+                    
+                    const downloadSectionMobile = document.getElementById('download-section-mobile');
+                     if (downloadSectionMobile) downloadSectionMobile.appendChild(mp4Link.cloneNode(true));
+
+                    const mobileBar = document.getElementById('mobile-recording-bar');
+                    if (mobileBar) {
+                        // Tạo link riêng cho mobile bar
+                         const mobileMp4Link = mp4Link.cloneNode(true);
+                         mobileMp4Link.className = 'mp4-download-link bg-purple-600 text-white font-bold py-2 px-4 rounded-lg';
+                         mobileBar.appendChild(mobileMp4Link);
+                    }
+
+                    // Ẩn nút "Chuyển sang MP4" sau khi thành công
+                    convertButtons.forEach(btn => btn.style.display = 'none');
+                } else {
+                    throw new Error('Không nhận được đường dẫn tải về từ máy chủ.');
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi khi chuyển đổi:', error);
+                alert('Đã có lỗi xảy ra trong quá trình chuyển đổi file. Vui lòng thử lại.');
+                // Kích hoạt lại các nút nếu có lỗi
+                 convertButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = 'Chuyển sang MP4';
+                });
+            });
+        }
+    </script>
+</body>
+</html>

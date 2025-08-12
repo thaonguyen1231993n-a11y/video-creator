@@ -1,0 +1,11 @@
+# Thư mục chứa các thư viện đã cài đặt
+/node_modules
+
+# Các file và thư mục tạm
+/uploads
+/converted
+/local_data
+
+# Log files
+*.log
+npm-debug.log*
