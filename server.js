@@ -78,7 +78,12 @@ app.post('/convert', upload.single('video'), (req, res) => {
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
             '-movflags', 'frag_keyframe+empty_moov',
-            '-threads', '1'
+            '-threads', '1',
+            // ** NÂNG CẤP: Giảm chất lượng để tiết kiệm bộ nhớ **
+            // Constant Rate Factor: 28 là mức chất lượng tốt cho web, giá trị càng cao, chất lượng càng thấp
+            '-crf', '28', 
+            // Giới hạn bitrate âm thanh để giảm dung lượng
+            '-b:a', '128k'
         ])
         .toFormat('mp4')
         .on('start', (commandLine) => {
@@ -108,3 +113,17 @@ app.post('/convert', upload.single('video'), (req, res) => {
 app.listen(port, () => {
     console.log(`Máy chủ đang chạy tại cổng ${port}`);
 });
+```
+
+### ## Các bước tiếp theo
+
+1.  **Cập nhật `server.js`:** Sao chép mã nguồn mới ở trên và ghi đè lên file `server.js` trong dự án của bạn.
+2.  **Đẩy lên GitHub:** Lưu lại thay đổi và đẩy file `server.js` mới lên kho chứa GitHub.
+    ```bash
+    git add server.js
+    git commit -m "Optimize Ffmpeg memory usage for mobile uploads"
+    git push origin main
+    ```
+3.  **Chờ Render triển khai lại** và thử lại trên cả máy tính và điện thoại.
+
+Lần này, quá trình chuyển đổi sẽ ổn định hơn rất nhiều, ngay cả với các file lớn từ điện tho
