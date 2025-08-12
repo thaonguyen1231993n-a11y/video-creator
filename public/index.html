@@ -98,7 +98,8 @@
         setVh();
 
         // --- STATE & CONFIG ---
-        const BACKEND_URL = 'https://v-creator.onrender.com'; // <-- Đảm bảo URL này chính xác
+        const BACKEND_URL = 'https://v-creator.onrender.com'; // <-- URL của máy chủ cấp chữ ký
+        const CLOUDINARY_CLOUD_NAME = 'dcnvv9p2m'; // <-- THAY THẾ bằng Cloud Name của bạn
 
         let imageFiles = [], audioFile1 = null, audioFile2 = null, logoFile = null, mediaRecorder;
         let animationFrameId, recordingStartTime = 0;
@@ -892,8 +893,8 @@
                 alert('Không tìm thấy video để chuyển đổi. Vui lòng tạo video trước.');
                 return;
             }
-            if (!BACKEND_URL || BACKEND_URL.includes('your-backend-url-here')) {
-                alert('Lỗi cấu hình: Vui lòng đặt địa chỉ BACKEND_URL trong mã nguồn file index.html.');
+            if (!BACKEND_URL || !CLOUDINARY_CLOUD_NAME) {
+                alert('Lỗi cấu hình: Vui lòng đặt địa chỉ BACKEND_URL và CLOUDINARY_CLOUD_NAME.');
                 return;
             }
 
@@ -905,67 +906,51 @@
                 btn.innerHTML = '<div class="loader mx-auto" style="width: 20px; height: 20px;"></div>';
             });
             statusDivs.forEach(div => {
-                div.textContent = 'Đang gửi file... Quá trình này có thể mất vài phút.';
+                div.textContent = 'Đang lấy "vé thông hành"...';
                 div.classList.remove('text-red-500');
                 div.classList.add('text-gray-600');
             });
             
-            // ** Thêm cơ chế Watchdog **
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-                controller.abort();
-            }, 90000); // Hủy sau 90 giây
-
             try {
+                // Bước 1: Lấy chữ ký từ backend
+                const signatureResponse = await fetch(`${BACKEND_URL.replace(/\/$/, '')}/api/sign-upload`);
+                if (!signatureResponse.ok) throw new Error('Không thể lấy chữ ký từ máy chủ.');
+                const signatureData = await signatureResponse.json();
+
+                // Bước 2: Tải trực tiếp lên Cloudinary
+                statusDivs.forEach(div => div.textContent = 'Đang tải file lên máy chủ media...');
                 const formData = new FormData();
-                formData.append('video', webmBlob, 'video-to-convert.webm');
+                formData.append('file', webmBlob);
+                formData.append('api_key', signatureData.api_key);
+                formData.append('timestamp', signatureData.timestamp);
+                formData.append('signature', signatureData.signature);
+                formData.append('eager', 'f_mp4,vc_h264,ac_aac'); // Yêu cầu chuyển đổi
 
-                const fullUrl = `${BACKEND_URL.replace(/\/$/, '')}/convert`;
-                console.log(`Đang gửi file ${ (webmBlob.size / (1024*1024)).toFixed(2) } MB đến ${fullUrl}`);
-
-                statusDivs.forEach(div => div.textContent = 'Đã gửi file. Máy chủ đang xử lý...');
-
-                const response = await fetch(fullUrl, {
+                const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`;
+                
+                const uploadResponse = await fetch(cloudinaryUrl, {
                     method: 'POST',
                     body: formData,
-                    signal: controller.signal // Gắn watchdog vào yêu cầu
                 });
+
+                if (!uploadResponse.ok) throw new Error('Tải file lên Cloudinary thất bại.');
+                const uploadResult = await uploadResponse.json();
                 
-                clearTimeout(timeoutId);
+                // Lấy link mp4 từ kết quả
+                const mp4Url = uploadResult.eager[0].secure_url;
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Lỗi từ máy chủ (${response.status}).`);
-                }
-
-                statusDivs.forEach(div => div.textContent = 'Đang tải file MP4 về...');
-                const jsonResponse = await response.json(); // Nhận JSON thay vì blob
-
-                if (!jsonResponse || !jsonResponse.downloadUrl) {
-                    throw new Error('Máy chủ không trả về link tải file.');
-                }
-                
-                // Mở link Cloudinary trong tab mới để người dùng tự tải về
-                window.open(jsonResponse.downloadUrl, '_blank');
-
-                convertButtons.forEach(btn => {
-                    btn.style.display = 'none';
-                });
                 statusDivs.forEach(div => {
-                    div.innerHTML = `Chuyển đổi thành công! <a href="${jsonResponse.downloadUrl}" target="_blank" class="text-blue-600 underline">Nhấn vào đây nếu file không tự mở.</a>`;
+                    div.innerHTML = `Thành công! <a href="${mp4Url}" target="_blank" class="text-blue-600 underline">Nhấn vào đây để xem hoặc tải về.</a>`;
                 });
+                convertButtons.forEach(btn => btn.style.display = 'none');
 
             } catch (error) {
-                clearTimeout(timeoutId);
                 console.error('Lỗi khi chuyển đổi:', error);
-                
                 let errorMessage = 'Lỗi không xác định. Vui lòng thử lại.';
-                if (error.name === 'AbortError') {
-                    errorMessage = 'Quá trình xử lý quá lâu và đã bị hủy. Hãy thử với video ngắn hơn.';
-                } else if (error.message.includes('Lỗi từ máy chủ')) {
-                    errorMessage = 'Máy chủ gặp lỗi khi xử lý. Vui lòng thử lại sau.';
-                } else if (error.message.includes('Failed to fetch')) {
-                    errorMessage = 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại mạng.';
+                if (error.message.includes('Không thể lấy chữ ký')) {
+                    errorMessage = 'Không thể kết nối đến máy chủ. Vui lòng thử lại sau.';
+                } else if (error.message.includes('Cloudinary thất bại')) {
+                    errorMessage = 'Lỗi khi tải file lên máy chủ media. File có thể quá lớn.';
                 }
 
                 statusDivs.forEach(div => {
