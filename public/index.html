@@ -98,6 +98,12 @@
         setVh();
 
         // --- STATE & CONFIG ---
+        // =====================================================================================
+        // === QUAN TRỌNG: Dán URL backend của bạn trên Render vào đây ===
+        // Ví dụ: const BACKEND_URL = 'https://video-creator-backend.onrender.com';
+        // =====================================================================================
+        const BACKEND_URL = 'https://v-creator.onrender.com/'; // <--- THAY THẾ URL NÀY
+
         let imageFiles = [], audioFile1 = null, audioFile2 = null, logoFile = null, mediaRecorder;
         let animationFrameId, recordingStartTime = 0;
         let currentAspectRatio = '16:9', activeEffects = new Set();
@@ -108,15 +114,12 @@
         let audioState = { volume1: 1.0, volume2: 0.5 };
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
-        // *** BỔ SUNG 1: Thêm biến để lưu trữ video webm ***
         let webmBlob = null; 
 
-        // --- RECORDER OPTIMIZATION ---
-        // *** BỔ SUNG 2: Ưu tiên WEBM để đảm bảo ghi hình ổn định, đây là nền tảng cho chức năng chuyển đổi MP4 ***
         const MimeTypes = [
-            'video/webm; codecs=vp9,opus', // Ưu tiên hàng đầu vì ổn định trên Chrome, Firefox
+            'video/webm; codecs=vp9,opus',
             'video/webm',
-            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"', // Dùng làm phương án dự phòng, chủ yếu cho Safari
+            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
             'video/mp4',
         ];
         function getSupportedMimeType() {
@@ -129,7 +132,6 @@
             return null;
         }
         const supportedMimeType = getSupportedMimeType();
-        // Tên file sẽ là webm nếu trình duyệt chọn webm, ngược lại là mp4
         const fileExtension = supportedMimeType && supportedMimeType.includes('webm') ? 'webm' : 'mp4';
 
         const TOOLS = [
@@ -285,7 +287,6 @@
                     <button id="stop-btn-${device}" class="w-full bg-gray-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-gray-700 transition disabled:bg-gray-300 hidden" disabled>Dừng</button>
                     <div id="download-section-${device}" class="w-full hidden">
                          <a id="download-link-${device}" class="w-full text-center inline-block bg-green-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-green-700">Tải Video (.${fileExtension})</a>
-                         <!-- *** BỔ SUNG 3: Thêm nút chuyển đổi MP4 *** -->
                          <button id="convert-btn-${device}" class="w-full mt-2 bg-blue-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-blue-700 transition">Chuyển sang MP4</button>
                          <button id="new-video-btn-${device}" class="w-full mt-2 bg-gray-200 text-gray-800 font-bold ${buttonPadding} rounded-lg hover:bg-gray-300 transition">Tạo mới</button>
                     </div>
@@ -314,7 +315,6 @@
                     <div id="recording-status" class="flex items-center text-sm font-medium"></div>
                     <button id="recording-stop-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Dừng</button>
                     <a id="recording-download-link" class="hidden bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Tải về</a>
-                    <!-- *** BỔ SUNG 4: Thêm nút chuyển đổi MP4 cho mobile *** -->
                     <button id="recording-convert-btn" class="hidden bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Chuyển MP4</button>
                     <button id="recording-new-btn" class="hidden bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg">Làm lại</button>
                 </div>
@@ -340,6 +340,9 @@
                 if (e.target.closest('button')?.id.startsWith('start-btn')) startRecording();
                 if (e.target.closest('button')?.id.startsWith('stop-btn') || e.target.closest('button')?.id === 'recording-stop-btn') stopRecording();
                 if (e.target.closest('button')?.id.startsWith('new-video-btn') || e.target.closest('button')?.id === 'recording-new-btn') resetToEditMode();
+                
+                // Gắn sự kiện cho nút chuyển đổi
+                if (e.target.closest('button')?.id.startsWith('convert-btn')) convertToMp4();
             });
 
             document.body.addEventListener('change', (e) => {
@@ -681,17 +684,17 @@
                     if (link.href) URL.revokeObjectURL(link.href);
                     link.href = videoURL;
                     link.download = `video_${Date.now()}.${fileExtension}`;
+                    link.textContent = `Tải Video (.${fileExtension})`;
                 }
-                // *** BỔ SUNG: Hiển thị nút chuyển đổi MP4 nếu file là webm ***
                 const convertBtn = el.querySelector('[id^="convert-btn"]');
                 if (convertBtn) {
                     if (fileExtension === 'webm') {
                         convertBtn.classList.remove('hidden');
                         convertBtn.style.display = 'block';
                         convertBtn.disabled = false;
-                        convertBtn.textContent = 'Chuyển sang MP4';
+                        convertBtn.innerHTML = 'Chuyển sang MP4';
                     } else {
-                        convertBtn.classList.add('hidden');
+                        convertBtn.style.display = 'none';
                     }
                 }
             });
@@ -719,7 +722,7 @@
                          if (fileExtension === 'webm') {
                             mobileConvertBtn.classList.remove('hidden');
                             mobileConvertBtn.disabled = false;
-                            mobileConvertBtn.textContent = 'Chuyển MP4';
+                            mobileConvertBtn.innerHTML = 'Chuyển MP4';
                         } else {
                             mobileConvertBtn.classList.add('hidden');
                         }
@@ -799,10 +802,7 @@
                     if (localAudioContext && localAudioContext.state !== 'closed') { localAudioContext.close(); }
                     
                     const blob = new Blob(recordedChunks, { type: supportedMimeType });
-                    
-                    // *** BỔ SUNG 8: Lưu blob để dùng cho chức năng chuyển đổi ***
                     webmBlob = blob; 
-                    
                     const videoURL = URL.createObjectURL(blob);
                     
                     setFinishedUI(videoURL);
@@ -843,9 +843,7 @@
 		function resetToEditMode() {
             setIdleUI();
 			drawStaticFrame();
-            // *** BỔ SUNG 9: Xóa blob cũ khi tạo video mới ***
             webmBlob = null;
-            // Xóa các link tải về cũ
             document.querySelectorAll('.mp4-download-link').forEach(link => link.remove());
 		}
 
@@ -878,74 +876,67 @@
 			});
 		}
 
-        // *** BỔ SUNG 10: Hàm giao tiếp với backend để chuyển đổi video ***
-        function convertToMp4() {
+        // --- HÀM CHUYỂN ĐỔI MP4 ĐÃ ĐƯỢC CẢI TIẾN ---
+        async function convertToMp4() {
             if (!webmBlob) {
                 alert('Không tìm thấy video để chuyển đổi. Vui lòng tạo video trước.');
                 return;
             }
+            if (!BACKEND_URL || BACKEND_URL.includes('your-backend-url-here')) {
+                alert('Lỗi cấu hình: Vui lòng đặt địa chỉ BACKEND_URL trong mã nguồn file index.html.');
+                return;
+            }
 
-            // Vô hiệu hóa các nút và hiển thị trạng thái đang xử lý
-            const convertButtons = document.querySelectorAll('[id^="convert-btn"], #recording-convert-btn');
+            const convertButtons = document.querySelectorAll('[id^="convert-btn"]');
             convertButtons.forEach(btn => {
                 btn.disabled = true;
                 btn.innerHTML = '<div class="loader mx-auto"></div>';
             });
 
-            const formData = new FormData();
-            formData.append('video', webmBlob, 'video-to-convert.webm');
+            try {
+                const formData = new FormData();
+                formData.append('video', webmBlob, 'video-to-convert.webm');
 
-            // Gửi yêu cầu đến backend
-            fetch('/convert', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
+                console.log(`Đang gửi file ${ (webmBlob.size / (1024*1024)).toFixed(2) } MB đến ${BACKEND_URL}/convert`);
+
+                const response = await fetch(`${BACKEND_URL}/convert`, {
+                    method: 'POST',
+                    body: formData
+                });
+
                 if (!response.ok) {
-                    throw new Error(`Lỗi từ máy chủ: ${response.statusText}`);
+                    const errorText = await response.text();
+                    throw new Error(`Lỗi từ máy chủ: ${response.status} ${response.statusText}. Chi tiết: ${errorText}`);
                 }
-                return response.json();
-            })
-            .then(data => {
-                if (data.downloadUrl) {
-                    // Tạo một link tải MP4 mới và hiển thị nó
-                    const mp4Link = document.createElement('a');
-                    mp4Link.href = data.downloadUrl;
-                    mp4Link.textContent = 'Tải file MP4 đã chuyển đổi';
-                    // Thêm class để dễ dàng xóa sau này
-                    mp4Link.className = 'mp4-download-link w-full mt-2 text-center inline-block bg-purple-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-purple-700';
-                    mp4Link.download = `video_converted_${Date.now()}.mp4`;
 
-                    // Tìm và chèn link mới vào khu vực tải về
-                    const downloadSectionDesktop = document.getElementById('download-section-desktop');
-                    if (downloadSectionDesktop) downloadSectionDesktop.appendChild(mp4Link.cloneNode(true));
-                    
-                    const downloadSectionMobile = document.getElementById('download-section-mobile');
-                     if (downloadSectionMobile) downloadSectionMobile.appendChild(mp4Link.cloneNode(true));
+                // Nhận file mp4 dưới dạng blob
+                const mp4Blob = await response.blob();
+                
+                // Tạo URL tạm thời cho file blob và kích hoạt tải về
+                const url = window.URL.createObjectURL(mp4Blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `converted_${Date.now()}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
 
-                    const mobileBar = document.getElementById('mobile-recording-bar');
-                    if (mobileBar) {
-                        // Tạo link riêng cho mobile bar
-                         const mobileMp4Link = mp4Link.cloneNode(true);
-                         mobileMp4Link.className = 'mp4-download-link bg-purple-600 text-white font-bold py-2 px-4 rounded-lg';
-                         mobileBar.appendChild(mobileMp4Link);
-                    }
+                // Ẩn nút sau khi thành công
+                convertButtons.forEach(btn => {
+                    btn.style.display = 'none';
+                });
 
-                    // Ẩn nút "Chuyển sang MP4" sau khi thành công
-                    convertButtons.forEach(btn => btn.style.display = 'none');
-                } else {
-                    throw new Error('Không nhận được đường dẫn tải về từ máy chủ.');
-                }
-            })
-            .catch(error => {
+            } catch (error) {
                 console.error('Lỗi khi chuyển đổi:', error);
-                alert('Đã có lỗi xảy ra trong quá trình chuyển đổi file. Vui lòng thử lại.');
+                alert('Đã có lỗi xảy ra trong quá trình chuyển đổi file. Vui lòng kiểm tra Console (F12) để biết chi tiết.');
                 // Kích hoạt lại các nút nếu có lỗi
                  convertButtons.forEach(btn => {
                     btn.disabled = false;
-                    btn.textContent = 'Chuyển sang MP4';
+                    btn.innerHTML = 'Thử lại chuyển đổi';
                 });
-            });
+            }
         }
     </script>
 </body>

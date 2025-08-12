@@ -1,60 +1,69 @@
 const express = require('express');
 const multer = require('multer');
-const ffmpeg = require('fluent-ffmpeg');
+const ffmpeg = 'fluent-ffmpeg'; // This will be required conditionally
 const stream = require('stream');
+const cors = require('cors'); // Thêm thư viện cors
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Cấu hình Multer để lưu file vào bộ nhớ (RAM) ---
-// Thay vì diskStorage, chúng ta dùng memoryStorage
+// --- Kích hoạt CORS ---
+// Cho phép các yêu cầu từ bất kỳ nguồn nào. An toàn cho trường hợp này.
+app.use(cors());
+
+// Cấu hình Multer để lưu file vào bộ nhớ (RAM)
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 // Phục vụ các file tĩnh từ thư mục /public
 app.use(express.static('public'));
 
-// --- Endpoint (API) để chuyển đổi video ---
+// Endpoint để kiểm tra backend có hoạt động không
+app.get('/', (req, res) => {
+    res.send('Backend đang hoạt động tốt!');
+});
+
+// Endpoint để chuyển đổi video
 app.post('/convert', upload.single('video'), (req, res) => {
-    // Kiểm tra xem có file nào được tải lên trong bộ nhớ không
     if (!req.file) {
         return res.status(400).send('Không có file nào được tải lên.');
     }
 
-    console.log(`[INFO] Nhận được file trong bộ nhớ, kích thước: ${(req.file.size / 1024).toFixed(2)} KB. Bắt đầu chuyển đổi.`);
+    console.log(`[INFO] Nhận được file trong bộ nhớ, kích thước: ${(req.file.size / (1024*1024)).toFixed(2)} MB. Bắt đầu chuyển đổi.`);
 
-    // Tạo một stream có thể đọc được từ buffer trong bộ nhớ
-    const readableStream = new stream.PassThrough();
-    readableStream.end(req.file.buffer);
+    try {
+        const ffmpegInstance = require(ffmpeg);
+        const readableStream = new stream.PassThrough();
+        readableStream.end(req.file.buffer);
 
-    // Thiết lập header để trình duyệt hiểu đây là một file tải về
-    const outputFilename = `converted-${Date.now()}.mp4`;
-    res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
-    res.setHeader('Content-Type', 'video/mp4');
+        const outputFilename = `converted-${Date.now()}.mp4`;
+        res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
+        res.setHeader('Content-Type', 'video/mp4');
 
-    // Dùng FFmpeg để đọc từ stream và ghi kết quả trực tiếp vào stream phản hồi (res)
-    ffmpeg(readableStream)
-        .videoCodec('libx264')
-        .audioCodec('aac')
-        .toFormat('mp4')
-        .on('start', (commandLine) => {
-            console.log('[FFMPEG] Spawned Ffmpeg with command: ' + commandLine);
-        })
-        .on('error', (err, stdout, stderr) => {
-            console.error('[ERROR] Lỗi FFmpeg:', err.message);
-            console.error('[FFMPEG stdout]:', stdout);
-            console.error('[FFMPEG stderr]:', stderr);
-            // Nếu có lỗi, không gửi thêm dữ liệu
-            if (!res.headersSent) {
-                res.status(500).send('Lỗi trong quá trình chuyển đổi video.');
-            }
-        })
-        .on('end', () => {
-            console.log('[SUCCESS] Chuyển đổi và stream thành công.');
-            // Stream sẽ tự kết thúc, không cần res.end() ở đây
-        })
-        // Pipe the output of ffmpeg directly to the response stream
-        .pipe(res, { end: true });
+        ffmpegInstance(readableStream)
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .toFormat('mp4')
+            .on('start', (commandLine) => {
+                console.log('[FFMPEG] Đã khởi chạy với lệnh: ' + commandLine);
+            })
+            .on('error', (err, stdout, stderr) => {
+                console.error('[ERROR] Lỗi FFmpeg:', err.message);
+                console.error('[FFMPEG stdout]:', stdout);
+                console.error('[FFMPEG stderr]:', stderr);
+                if (!res.headersSent) {
+                    res.status(500).send('Lỗi trong quá trình chuyển đổi video.');
+                }
+            })
+            .on('end', () => {
+                console.log('[SUCCESS] Chuyển đổi và stream thành công.');
+            })
+            .pipe(res, { end: true });
+
+    } catch (error) {
+         console.error('[FATAL] Không thể tải thư viện fluent-ffmpeg. Đảm bảo FFmpeg đã được cài đặt trong môi trường.', error);
+         res.status(500).send('Lỗi máy chủ: Không thể khởi tạo bộ chuyển đổi.');
+    }
 });
 
 app.listen(port, () => {
