@@ -99,7 +99,6 @@
 
         // --- STATE & CONFIG ---
         const BACKEND_URL = 'https://v-creator.onrender.com'; // <-- URL của máy chủ cấp chữ ký
-        const CLOUDINARY_CLOUD_NAME = 'dcnvv9p2m'; // <-- THAY THẾ bằng Cloud Name của bạn
 
         let imageFiles = [], audioFile1 = null, audioFile2 = null, logoFile = null, mediaRecorder;
         let animationFrameId, recordingStartTime = 0;
@@ -893,8 +892,8 @@
                 alert('Không tìm thấy video để chuyển đổi. Vui lòng tạo video trước.');
                 return;
             }
-            if (!BACKEND_URL || !CLOUDINARY_CLOUD_NAME) {
-                alert('Lỗi cấu hình: Vui lòng đặt địa chỉ BACKEND_URL và CLOUDINARY_CLOUD_NAME.');
+            if (!BACKEND_URL) {
+                alert('Lỗi cấu hình: Vui lòng đặt địa chỉ BACKEND_URL.');
                 return;
             }
 
@@ -912,7 +911,7 @@
             });
             
             try {
-                // Bước 1: Lấy chữ ký từ backend
+                // Bước 1: Lấy chữ ký và các thông tin cần thiết từ backend
                 const signatureResponse = await fetch(`${BACKEND_URL.replace(/\/$/, '')}/api/sign-upload`);
                 if (!signatureResponse.ok) throw new Error('Không thể lấy chữ ký từ máy chủ.');
                 const signatureData = await signatureResponse.json();
@@ -924,9 +923,9 @@
                 formData.append('api_key', signatureData.api_key);
                 formData.append('timestamp', signatureData.timestamp);
                 formData.append('signature', signatureData.signature);
-                formData.append('eager', 'f_mp4,vc_h264,ac_aac'); // Yêu cầu chuyển đổi
+                formData.append('eager', signatureData.eager); // Dùng chuỗi eager từ backend
 
-                const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`;
+                const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${signatureData.cloud_name}/video/upload`;
                 
                 const uploadResponse = await fetch(cloudinaryUrl, {
                     method: 'POST',
