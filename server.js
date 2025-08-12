@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
-// --- TỰ KIỂM TRA BIẾN MÔI TRƯƯỜG ---
+// --- TỰ KIỂM TRA BIẾN MÔI TRƯỜG ---
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey = process.env.CLOUDINARY_API_KEY;
 const apiSecret = process.env.CLOUDINARY_API_SECRET;
