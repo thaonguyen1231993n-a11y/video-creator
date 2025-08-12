@@ -283,7 +283,10 @@
                     <button id="stop-btn-${device}" class="w-full bg-gray-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-gray-700 transition disabled:bg-gray-300 hidden" disabled>Dừng</button>
                     <div id="download-section-${device}" class="w-full hidden">
                          <a id="download-link-${device}" class="w-full text-center inline-block bg-green-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-green-700">Tải Video (.${fileExtension})</a>
-                         <button id="convert-btn-${device}" class="w-full mt-2 bg-blue-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-blue-700 transition">Chuyển sang MP4</button>
+                         <button id="convert-btn-${device}" class="w-full mt-2 bg-blue-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                            <span class="btn-text">Chuyển sang MP4</span>
+                            <div class="loader btn-loader hidden" style="width: 16px; height: 16px; border-width: 2px;"></div>
+                         </button>
                          <div id="convert-status-${device}" class="text-xs text-center text-gray-600 mt-2"></div>
                          <button id="new-video-btn-${device}" class="w-full mt-2 bg-gray-200 text-gray-800 font-bold ${buttonPadding} rounded-lg hover:bg-gray-300 transition">Tạo mới</button>
                     </div>
@@ -310,10 +313,15 @@
             return `
                 <div class="flex items-center justify-between w-full">
                     <div id="recording-status" class="flex items-center text-sm font-medium"></div>
+                    <div class="flex items-center gap-2">
+                        <a id="recording-download-link" class="hidden bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Tải về</a>
+                        <button id="recording-convert-btn" class="hidden bg-blue-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2">
+                            <span class="btn-text">Chuyển MP4</span>
+                            <div class="loader btn-loader hidden" style="width: 16px; height: 16px; border-width: 2px;"></div>
+                        </button>
+                        <button id="recording-new-btn" class="hidden bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg">Làm lại</button>
+                    </div>
                     <button id="recording-stop-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Dừng</button>
-                    <a id="recording-download-link" class="hidden bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Tải về</a>
-                    <button id="recording-convert-btn" class="hidden bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Chuyển MP4</button>
-                    <button id="recording-new-btn" class="hidden bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg">Làm lại</button>
                 </div>
             `;
         }
@@ -689,8 +697,7 @@
                     if (fileExtension === 'webm') {
                         convertBtn.classList.remove('hidden');
                         convertBtn.style.display = 'block';
-                        convertBtn.disabled = false;
-                        convertBtn.innerHTML = 'Chuyển sang MP4';
+                        resetConvertButtons(); // Reset to initial state
                     } else {
                         convertBtn.style.display = 'none';
                     }
@@ -722,8 +729,7 @@
                     if (mobileConvertBtn) {
                          if (fileExtension === 'webm') {
                             mobileConvertBtn.classList.remove('hidden');
-                            mobileConvertBtn.disabled = false;
-                            mobileConvertBtn.innerHTML = 'Chuyển MP4';
+                            resetConvertButtons(); // Reset to initial state
                         } else {
                             mobileConvertBtn.classList.add('hidden');
                         }
@@ -902,7 +908,8 @@
 
             convertButtons.forEach(btn => {
                 btn.disabled = true;
-                btn.innerHTML = '<div class="loader mx-auto" style="width: 20px; height: 20px;"></div>';
+                btn.querySelector('.btn-text').classList.add('hidden');
+                btn.querySelector('.btn-loader').classList.remove('hidden');
             });
             statusDivs.forEach(div => {
                 div.textContent = 'Đang lấy "vé thông hành"...';
@@ -964,7 +971,13 @@
             const convertButtons = document.querySelectorAll('[id^="convert-btn"], #recording-convert-btn');
             convertButtons.forEach(btn => {
                 btn.disabled = false;
-                btn.innerHTML = 'Thử lại chuyển đổi';
+                const textSpan = btn.querySelector('.btn-text');
+                const loader = btn.querySelector('.btn-loader');
+                if(textSpan) {
+                    textSpan.textContent = btn.id === 'recording-convert-btn' ? 'Chuyển MP4' : 'Chuyển sang MP4';
+                    textSpan.classList.remove('hidden');
+                }
+                if(loader) loader.classList.add('hidden');
             });
         }
     </script>
