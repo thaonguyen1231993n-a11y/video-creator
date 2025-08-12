@@ -5,11 +5,22 @@ const stream = require('stream');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
-// --- Cấu hình Cloudinary từ biến môi trường trên Render ---
+// --- TỰ KIỂM TRA BIẾN MÔI TRƯỜNG ---
+const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+const apiKey = process.env.CLOUDINARY_API_KEY;
+const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+if (!cloudName || !apiKey || !apiSecret) {
+  console.error('!!!!!! LỖI NGHIÊM TRỌNG: Thiếu một hoặc nhiều biến môi trường của Cloudinary.');
+  console.error('Vui lòng kiểm tra lại các biến CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, và CLOUDINARY_API_SECRET trong tab Environment trên Render.');
+  process.exit(1); // Dừng ứng dụng nếu thiếu cấu hình
+}
+
+// Cấu hình Cloudinary
 cloudinary.config({ 
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
-  api_key: process.env.CLOUDINARY_API_KEY, 
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  cloud_name: cloudName, 
+  api_key: apiKey, 
+  api_secret: apiSecret,
   secure: true
 });
 
@@ -29,7 +40,7 @@ app.get('/', (req, res) => {
 const uploadStream = (buffer) => {
     return new Promise((resolve, reject) => {
         const upload = cloudinary.uploader.upload_stream(
-            { resource_type: "video" }, // Quan trọng: chỉ định đây là file video
+            { resource_type: "video" },
             (error, result) => {
                 if (error) {
                     reject(error);
@@ -52,7 +63,6 @@ app.post('/convert', upload.single('video'), (req, res) => {
     const readableStream = new stream.PassThrough();
     readableStream.end(req.file.buffer);
 
-    // Tạo một stream để hứng kết quả từ FFmpeg
     const chunks = [];
     const writableStream = new stream.Writable({
         write(chunk, encoding, callback) {
@@ -86,7 +96,6 @@ app.post('/convert', upload.single('video'), (req, res) => {
                 const videoBuffer = Buffer.concat(chunks);
                 const result = await uploadStream(videoBuffer);
                 console.log('[SUCCESS] Đã tải lên Cloudinary thành công.');
-                // Trả về URL an toàn của video trên Cloudinary
                 res.json({ downloadUrl: result.secure_url });
             } catch (uploadError) {
                 console.error('[ERROR] Lỗi khi tải lên Cloudinary:', uploadError.message);
