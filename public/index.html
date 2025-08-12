@@ -288,7 +288,7 @@
                             <div class="loader btn-loader hidden" style="width: 16px; height: 16px; border-width: 2px;"></div>
                          </button>
                          <!-- ** NÂNG CẤP: Thêm nút tải MP4 ** -->
-                         <a id="download-mp4-link-${device}" target="_blank" class="w-full mt-2 text-center hidden bg-purple-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-purple-700">Tải về MP4</a>
+                         <a id="download-mp4-link-${device}" target="_blank" class="w-full mt-2 text-center hidden items-center justify-center bg-purple-600 text-white font-bold ${buttonPadding} rounded-lg hover:bg-purple-700">Tải về MP4</a>
                          <div id="convert-status-${device}" class="text-xs text-center text-gray-600 mt-2"></div>
                          <button id="new-video-btn-${device}" class="w-full mt-2 bg-gray-200 text-gray-800 font-bold ${buttonPadding} rounded-lg hover:bg-gray-300 transition">Tạo mới</button>
                     </div>
@@ -871,7 +871,28 @@
             setIdleUI();
 			drawStaticFrame();
             webmBlob = null;
-            document.querySelectorAll('.mp4-download-link').forEach(link => link.remove());
+            
+            // ** NÂNG CẤP: Reset toàn diện trạng thái chuyển đổi khi tạo video mới **
+            // 1. Ẩn tất cả các nút tải MP4 cũ
+            document.querySelectorAll('[id^="download-mp4-link"], #recording-download-mp4-link').forEach(link => {
+                link.classList.add('hidden');
+                link.style.display = 'none';
+                link.removeAttribute('href'); // Xóa link cũ để tránh click nhầm
+            });
+
+            // 2. Hiển thị lại các nút "Chuyển sang MP4"
+            document.querySelectorAll('[id^="convert-btn"], #recording-convert-btn').forEach(btn => {
+                btn.style.display = 'flex'; // Hoặc 'inline-flex' tùy vào layout
+                btn.classList.remove('hidden');
+            });
+            
+            // 3. Reset trạng thái của các nút chuyển đổi (văn bản, loader)
+            resetConvertButtons();
+
+            // 4. Xóa các thông báo trạng thái cũ
+            document.querySelectorAll('[id^="convert-status"]').forEach(div => {
+                div.textContent = '';
+            });
 		}
 
 		function showIOSDownloadGuide(url) {
@@ -957,7 +978,7 @@
                 const mp4Url = uploadResult.eager[0].secure_url;
 
                 // ** NÂNG CẤP: Hiển thị nút tải MP4 nổi bật **
-                document.querySelectorAll('[id^="download-mp4-link-"], #recording-download-mp4-link').forEach(link => {
+                document.querySelectorAll('[id^="download-mp4-link"], #recording-download-mp4-link').forEach(link => {
                     link.href = mp4Url;
                     link.classList.remove('hidden');
                     link.style.display = 'inline-flex'; // Hoặc 'flex' tùy vào layout
